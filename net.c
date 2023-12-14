@@ -75,7 +75,7 @@ void* arena_alloc(Arena* arena, unsigned int size)
         // grow until matching
         while (arena->allocated + size >= arena->capacity)
         {
-            arena->capacity += arena->capacity / 2;
+            arena->capacity += arena->capacity / 2 + 1;
         }
 
         void* original = arena->data;
@@ -148,6 +148,7 @@ int net_user_new(char* ip_addr)
 {
     assert(user_count < 1024, "Exceeded maximum number of users");
     users[user_count].ip_addr = ip_addr;
+    user_current = user_count;
     user_count++;
     return user_count - 1;
 }
@@ -155,6 +156,23 @@ int net_user_new(char* ip_addr)
 void net_user_bind(unsigned int i)
 {
     user_current = i;
+}
+
+int net_user_from_ip(char* ip_addr)
+{
+    // find user from ip and get socket
+    for (int i = 0; i < user_count; i++)
+    {
+        if (strncmp(users[i].ip_addr, ip_addr, strlen(ip_addr)) == 0)
+        {
+            // found match!
+            return i;
+        }
+    }
+
+    assert(0, "this should never be reached");
+
+    return -1;
 }
 #endif
 
@@ -181,16 +199,6 @@ Socket* net_connect(const char* ip_addr)
     if (ip_addr[0] == '0')
     {
         unsigned int user_who_owns_ip;
-        // find user from ip and get socket
-        for (int i = 0; i < user_count; i++)
-        {
-            if (strncmp(users[i].ip_addr, ip_addr, strlen(ip_addr)) == 0)
-            {
-                // found match!
-                user_who_owns_ip = i;
-                break;
-            }
-        }
 
         socket = s_last_added;
         while (socket->owner_id != user_who_owns_ip && socket->is_listening)
@@ -303,15 +311,25 @@ int main()
 
     printf("Hello world\n");
     int id = net_user_new("0.1.1.2");
-    net_user_bind(id);
     Socket* s = net_listen();
 
     id = net_user_new("0.1.1.3");
-    net_user_bind(id);
     Socket* s2 = net_connect("0.1.1.2");
 
     // hurray!
+    assert(s->is_local, "otherwise none of this makes sense");
     assert(s == s2, "otherwise none of this makes sense");
+
+    net_bind(s2);
+    net_user_bind(1);
+    net_send("hello", 5);
+
+    net_bind(s);
+    net_user_bind(0);
+    printf("owner %i\n", s->owner_id);
+    static char buf[8];
+    net_recv(buf, 8);
+    printf("%s\n", buf);
     
     net_uninit();
     return 0;
