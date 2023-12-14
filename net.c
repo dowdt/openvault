@@ -2,20 +2,27 @@
 #include <stdlib.h>
 
 #include <string.h>
-#include <threads.h>
+
+
 
 #ifdef __unix
+
 #include <poll.h>
 #include <netdb.h>
 #include <unistd.h>
 #include <string.h>
 #include <netinet/in.h>
 #include <sys/time.h>
+#include <threads.h>
+
+// windows
+#else
+
 #endif
 
 void _assert(int cond, const char* msg, const char* file, unsigned int line)
 {
-    if (!cond)
+    if (cond == 0)
     {
         fprintf(stderr, "Assertion failed! File %s, Line: %i, Message: %s\n", file, line, msg);
         exit(-1);
@@ -49,6 +56,12 @@ typedef struct
     unsigned int capacity;
 } Arena;
 
+typedef struct
+{
+    Arena arena;
+    unsigned int bytes_read;
+} Buffer;
+
 void arena_init(Arena* arena, unsigned int capacity)
 {
     arena->capacity = capacity;
@@ -77,8 +90,7 @@ void* arena_alloc(Arena* arena, unsigned int size)
     return res;
 }
 
-void arena_append(Arena* arena, void* buf, unsigned int size)
-{
+void arena_append(Arena* arena, void* buf, unsigned int size) {
     void* addr = arena_alloc(arena, size);
     memcpy(addr, buf, size);
 }
@@ -99,34 +111,50 @@ void arena_free(Arena* arena)
 
 #define LOCAL_SIM
 
-typedef struct
+typedef struct Socket
 {
     int fd;
 #ifdef LOCAL_SIM
     bool is_local;
-    Arena arena;
-    unsigned int bytes_read;
+    bool is_listening;
     unsigned int owner_id;
+    Buffer from_owner;
+    Buffer for_owner;
+
+    struct Socket* prev;
+    struct Socket* next;
 #endif
 } Socket;
 
 
 Arena net_arena;
-Socket* current = NULL;
+Socket* s_current = NULL;
+Socket* s_last_added = NULL;
 #ifdef LOCAL_SIM
-unsigned int user_count;
+unsigned int user_current = 0;
+unsigned int user_count = 0;
+typedef struct
+{
+    char* ip_addr;
+} User;
+
+User users[1024];
 #endif
 
 #ifdef LOCAL_SIM
 
-int net_user_new()
+
+int net_user_new(char* ip_addr)
 {
-    
+    assert(user_count < 1024, "Exceeded maximum number of users");
+    users[user_count].ip_addr = ip_addr;
+    user_count++;
+    return user_count - 1;
 }
 
-void net_user_bind()
+void net_user_bind(unsigned int i)
 {
-    
+    user_current = i;
 }
 #endif
 
@@ -142,16 +170,48 @@ void net_uninit()
 
 void net_bind(Socket* sock)
 {
-    current = sock;
+    s_current = sock;
 }
 
 Socket* net_connect(const char* ip_addr)
 {
-    Socket* socket = (Socket*) arena_alloc(&net_arena, sizeof(Socket));
+    Socket* socket;
 
     // internal ip addresses become local let's say
-        
-    
+    if (ip_addr[0] == '0')
+    {
+        unsigned int user_who_owns_ip;
+        // find user from ip and get socket
+        for (int i = 0; i < user_count; i++)
+        {
+            if (strncmp(users[i].ip_addr, ip_addr, strlen(ip_addr)) == 0)
+            {
+                // found match!
+                user_who_owns_ip = i;
+                break;
+            }
+        }
+
+        socket = s_last_added;
+        while (socket->owner_id != user_who_owns_ip && socket->is_listening)
+        {
+            socket = socket->prev;
+            assert(socket != NULL, "someone tried connecting without there being a listener, this should work but ommitting for now");
+        }
+
+        socket->is_listening = 0;
+
+    }
+    else
+    {
+        socket = (Socket*) arena_alloc(&net_arena, sizeof(Socket));
+
+        // actually get socket
+
+        // skip for now
+
+    }
+
     return socket;
 }
 
@@ -160,40 +220,75 @@ Socket* net_listen()
 {
     Socket* socket = (Socket*) arena_alloc(&net_arena, sizeof(Socket));
 
+    // check if it's local?
+    socket->owner_id = user_current;
+    socket->fd = 0;
+    socket->is_local = 1;
+    socket->is_listening = 1;
+
+    if (s_last_added != NULL)
+        s_last_added->next = socket;
+    socket->prev = s_last_added;
+    s_last_added = socket;
 
     return socket;
 }
 
+void net_close()
+{
+    s_current = NULL;
+}
+
 void net_send(void* buf, unsigned int size)
 {
-    assert(current != NULL, "Current socket not bound");
+    assert(s_current != NULL, "Current socket not bound");
 
-    if (current->is_local)
+    if (s_current->is_local)
     {
+        Arena* dest;
+        if (user_current == s_current->owner_id)
+        {
+            dest = (Arena*) &s_current->from_owner;
+        }
+        else
+        {
+            dest = (Arena*) &s_current->for_owner;
+        }
+
         // add to the ting
-        arena_append(&current->arena, buf, size);
+        arena_append(dest, buf, size);
     }
     else
     {
         // use the fds luke
-        send(current->fd, buf, size, MSG_NOSIGNAL);
+        send(s_current->fd, buf, size, MSG_NOSIGNAL);
     }
 }
 
 int net_recv(void* buf, unsigned int size)
 {
-    assert(current != NULL, "Current socket not bound");
+    assert(s_current != NULL, "Current socket not bound");
 
-    if (current->is_local)
+    if (s_current->is_local)
     {
-        int number_of_bytes_to_be_read = mini(current->arena.allocated - current->bytes_read, size);
-        current->bytes_read += number_of_bytes_to_be_read;
-        memcpy(buf, current->arena.data, number_of_bytes_to_be_read);
+        Buffer* dest;
+        if (user_current == s_current->owner_id)
+        {
+            dest = &s_current->for_owner;
+        }
+        else
+        {
+            dest = &s_current->from_owner;
+        }
+
+        int number_of_bytes_to_be_read = mini(dest->arena.allocated - dest->bytes_read, size);
+        dest->bytes_read += number_of_bytes_to_be_read;
+        memcpy(buf, dest->arena.data, number_of_bytes_to_be_read);
         return number_of_bytes_to_be_read;
     }
     else
     {
-        return recv(current->fd, buf, size, 0);
+        return recv(s_current->fd, buf, size, 0);
     }
 }
 
@@ -207,6 +302,16 @@ int main()
     net_init();
 
     printf("Hello world\n");
+    int id = net_user_new("0.1.1.2");
+    net_user_bind(id);
+    Socket* s = net_listen();
+
+    id = net_user_new("0.1.1.3");
+    net_user_bind(id);
+    Socket* s2 = net_connect("0.1.1.2");
+
+    // hurray!
+    assert(s == s2, "otherwise none of this makes sense");
     
     net_uninit();
     return 0;
