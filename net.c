@@ -2,6 +2,7 @@
 #include <stdlib.h>
 
 #include <string.h>
+#include <sys/socket.h>
 
 
 
@@ -13,6 +14,8 @@
 #include <string.h>
 #include <netinet/in.h>
 #include <sys/time.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
 #include <threads.h>
 
 // windows
@@ -64,12 +67,15 @@ typedef struct
 
 void arena_init(Arena* arena, unsigned int capacity)
 {
-    arena->capacity = capacity;
     arena->data = malloc(capacity);
+    arena->capacity = capacity;
 }
 
 void* arena_alloc(Arena* arena, unsigned int size)
 {
+    if (arena->capacity == 0)
+        arena->data = NULL;
+
     if (arena->allocated + size >= arena->capacity)
     {
         // grow until matching
@@ -90,7 +96,8 @@ void* arena_alloc(Arena* arena, unsigned int size)
     return res;
 }
 
-void arena_append(Arena* arena, void* buf, unsigned int size) {
+void arena_append(Arena* arena, void* buf, unsigned int size)
+{
     void* addr = arena_alloc(arena, size);
     memcpy(addr, buf, size);
 }
@@ -111,12 +118,28 @@ void arena_free(Arena* arena)
 
 #define LOCAL_SIM
 
+/* typedef struct Socket */
+/* { */
+/*     int fd; */
+/* #ifdef LOCAL_SIM */
+/*     bool is_local; */
+/*     bool is_listening; */
+/*     unsigned int owner_id; */
+/*     Buffer from_owner; */
+/*     Buffer for_owner; */
+
+/*     struct Socket* prev; */
+/*     struct Socket* next; */
+/* #endif */
+/* } Socket; */
+
 typedef struct Socket
 {
     int fd;
 #ifdef LOCAL_SIM
     bool is_local;
     bool is_listening;
+    unsigned short listening_port;
     unsigned int owner_id;
     Buffer from_owner;
     Buffer for_owner;
@@ -191,55 +214,75 @@ void net_bind(Socket* sock)
     s_current = sock;
 }
 
-Socket* net_connect(const char* ip_addr)
+Socket* net_connect(const char* ip_addr, unsigned short port)
 {
-    Socket* socket;
+    Socket* sock;
 
     // internal ip addresses become local let's say
     if (ip_addr[0] == '0')
     {
         unsigned int user_who_owns_ip;
 
-        socket = s_last_added;
-        while (socket->owner_id != user_who_owns_ip && socket->is_listening)
+        user_who_owns_ip = net_user_from_ip((char*) ip_addr);
+
+        sock = s_last_added;
+        while (sock->owner_id != user_who_owns_ip && sock->is_listening)
         {
-            socket = socket->prev;
-            assert(socket != NULL, "someone tried connecting without there being a listener, this should work but ommitting for now");
+            sock = sock->prev;
+            assert(sock != NULL, "someone tried connecting without there being a listener, this should work but ommitting for now");
         }
 
-        socket->is_listening = 0;
-
+        sock->is_listening = 0;
     }
     else
     {
-        socket = (Socket*) arena_alloc(&net_arena, sizeof(Socket));
+        sock = (Socket*) arena_alloc(&net_arena, sizeof(Socket));
 
         // actually get socket
+        memset(sock, 0, sizeof(Socket));
+        sock->fd = socket(AF_INET, SOCK_STREAM, 0);
+        sock->is_local = 0;
+
+        struct sockaddr_in addr;
+        addr.sin_addr.s_addr = inet_addr(ip_addr);
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(port);
 
         // skip for now
+        // huh??
+        
+        assert(connect(sock->fd, (struct sockaddr*) &addr, sizeof(addr)) == 0, "failed to connect");
 
+        // should be connected now!
     }
 
-    return socket;
+    return sock;
 }
 
 // what to do if someone connects to us?
-Socket* net_listen()
+Socket* net_listen(unsigned short port)
 {
-    Socket* socket = (Socket*) arena_alloc(&net_arena, sizeof(Socket));
+    Socket sock = { 0 };
 
     // check if it's local?
-    socket->owner_id = user_current;
-    socket->fd = 0;
-    socket->is_local = 1;
-    socket->is_listening = 1;
+    sock.owner_id = user_current;
+    sock.fd = 0;
+    sock.is_local = 1;
+    sock.is_listening = 1;
+    sock.listening_port = port;
+
+    Socket* new_sock = (Socket*) arena_alloc(&net_arena, sizeof(Socket));
+    memset(new_sock, 0, sizeof(Socket));
+    *new_sock = sock;
 
     if (s_last_added != NULL)
-        s_last_added->next = socket;
-    socket->prev = s_last_added;
-    s_last_added = socket;
+        s_last_added->next = new_sock;
 
-    return socket;
+    new_sock->prev = s_last_added;
+    s_last_added = new_sock;
+
+
+    return new_sock;
 }
 
 void net_close()
@@ -270,6 +313,7 @@ void net_send(void* buf, unsigned int size)
     {
         // use the fds luke
         send(s_current->fd, buf, size, MSG_NOSIGNAL);
+        printf("sent!\n");
     }
 }
 
@@ -309,12 +353,11 @@ int main()
 {
     net_init();
 
-    printf("Hello world\n");
     int id = net_user_new("0.1.1.2");
-    Socket* s = net_listen();
+    Socket* s = net_listen(6969);
 
     id = net_user_new("0.1.1.3");
-    Socket* s2 = net_connect("0.1.1.2");
+    Socket* s2 = net_connect("0.1.1.2", 6969);
 
     // hurray!
     assert(s->is_local, "otherwise none of this makes sense");
@@ -329,7 +372,18 @@ int main()
     printf("owner %i\n", s->owner_id);
     static char buf[8];
     net_recv(buf, 8);
-    printf("%s\n", buf);
+    printf("Received: %s\n", buf);
+
+
+    // connect to HTTP server
+    s = net_connect("127.0.0.1", 8080);
+    net_bind(s);
+    net_send("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n", 41);
+    {
+        static char buf[1024];
+        net_recv(buf, 1023);
+        printf("HTTP response is: %s\n", buf);
+    }
     
     net_uninit();
     return 0;

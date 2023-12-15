@@ -68,6 +68,10 @@ int main()
         }
     }
 
+    // sadly still no way to get tls keys
+    // use below to actually get transfers happening
+    // tls_connect_cbs(struct tls *_ctx, tls_read_cb _read_cb, tls_write_cb _write_cb, void *_cb_arg, const char *_servername)
+
     printf("closing...\n");
     tls_close(ctx);
     err_check(ctx);
