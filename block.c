@@ -28,7 +28,7 @@ typedef struct
 
         struct
         {
-            unsigned int miner_reward;
+            unsigned int reward;
         };
     };
 } Transaction;
@@ -53,7 +53,6 @@ typedef struct
 #define MAX_CHAINERS_PER_REQUEST 5
 #define MAX_VERIFIERS_PER_REQUEST MAX_CHAINERS_PER_REQUEST
 
-
 #define MAX_DATA_PER_REQUEST 1028
 #define VERIFY_BLOCK_SIZE_BYTES 256
 #define MAX_BLOCKS_PER_REQUEST (unsigned int)(MAX_DATA_PER_REQUEST / VERIFY_BLOCK_SIZE_BYTES) + 1
@@ -69,9 +68,8 @@ typedef struct
     // transactions
         // dest, recp, amount, signature
     unsigned int transaction_count;
-
-    // transaction showing money for miner
-
+    Transaction* transactions;
+    Transaction mine_block_reward;
 
     // "alive" verifiers, addresses + signature from last block proving they are active
     //  - list of available verifiers or if overflowing, list of verifiers that weren't in last block
@@ -88,16 +86,7 @@ typedef struct
     unsigned int requests_completed_count; // can be zero
     struct
     {
-        /* Address from; */
-        /* unsigned int reward; */
-        /* // this should just point to the hash of the previous block's reward? */
-        /* // how do i turn address to ip? */
-        /* //  - well, we know the order of the connections so A broadcasts Enc(ip address, B), B sends Enc(ip address, C) and so on */
-        /* Address chainers[5]; */
-        /* Address verifiers[5]; */
-        // result?
-        // maybe keep in IPFS / bitorrent?
-
+        // reference from previous block
         // snoopers get 50% of the 95%
         struct SnooperResult
         {
@@ -112,7 +101,6 @@ typedef struct
         }* witness_results;
 
         byte status;
-
         // stored elsewhere in pc, bc too much mem otherwise
         byte* data;
         // make optional??
@@ -123,7 +111,7 @@ typedef struct
         // 95 / 5 split between verifiers and person mining this block
         // there is a minimum spend to be in list, oldest requests are dropped
     unsigned int requests_unfulfilled_count;
-    struct
+    struct RequestUnfulfilled
     {
         // should store a random value that expands to correct ordering based on available verifiers from last block
         // random value that encodes which nodes to chose and stuff, random value is nonce XOR with request #
@@ -138,22 +126,21 @@ typedef struct
         unsigned int value;
 
         Signature s;
-
-    } requests_unfulfilled[MAX_REQUESTS_PER_BLOCK];
+    }* requests_unfulfilled;
     
     unsigned int nonce;
     unsigned long timestamp_unix;
     // hash of next block
     byte solved_hash[32];
-} BlockShared;
+} BlockchainShared;
 
-typedef struct
-{
-    BlockShared block_shared;
-    BlockShared* prev;
-    byte next_amount;
-    BlockShared* next[256]; // cap bc otherwise infinite alloc
-} BlockInternal;
+/* typedef struct */
+/* { */
+/*     BlockchainShared block_shared; */
+/*     BlockchainShared* prev; */
+/*     byte next_amount; */
+/*     BlockchainShared* next[256]; // cap bc otherwise infinite alloc */
+/* } BlockchainInternal; */
 
 
 // check that the block is correctamundo
@@ -171,12 +158,22 @@ void verify_block()
 
 
     // TODO: Things to check
+    //  - make sure data is valid
+    //      - compare against max size for all fields
+    //  - check previous block is correct
+    //  - check difficulty is correct
+    //  - check block reward is correct
+    //  - check verifier addresses match signatures
+    //  --- 
+    //  - check snooper amounts match
+
     //  - is timestamp greater than previous
     //  - are the verifiers legitimate
     //  - are the transactions legit
     //  - is the reward the correct amount
     //  - make sure that requests aren't removed unless no more space is left
-    //  - make sure
+    //  - make sure that request proposal accounts actually have the money they pledge
+    //  - make sure that 
 }
 
 // XXX: node should handle this actually
@@ -190,10 +187,11 @@ void sync()
 
 int main()
 {
-    printf("%lu\n", sizeof(BlockShared));
+    printf("%lu\n", sizeof(BlockchainShared));
 
-    BlockShared b;
+    BlockchainShared b;
     
     printf("%lu\n", sizeof(struct WitnessResult));
     printf("%lu\n", sizeof(b.requests_completed));
+    printf("%lu\n", sizeof(b.requests_completed[0]));
 }
