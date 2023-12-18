@@ -1,4 +1,5 @@
 #include "types.h"
+#include <stdio.h>
 
 typedef struct
 {
@@ -13,23 +14,30 @@ typedef struct
 typedef struct
 {
     Address from;
-    unsigned int nonce;
+    unsigned int nonce; // aparently this is incremented for every transaction
     union
     {
         struct
         {
+            unsigned int amount;
+            unsigned int fee; // optional fee
             Address to;
-            int amount;
         };
 
-        // give to miner
+        // just a reward
 
         struct
         {
-            // ???
+            unsigned int miner_reward;
         };
     };
 } Transaction;
+
+typedef struct
+{
+    byte hash[32];
+    Signature s;
+} HashedBlock;
 
 // Address util functions
 // - sign(Address a, Hash* ret)
@@ -37,10 +45,20 @@ typedef struct
 // - send
 // - connect
 
-#define MAX_VERIFIERS_PER_BLOCK 64
+#define MAX_VERIFIERS_PER_BLOCK 32
+#define MAX_TRANSACTIONS_PER_BLOCK 128
 #define MAX_REQUESTS_PER_BLOCK 64
 #define MAX_HOST_LENGTH 32
 #define MAX_PATH_LENGTH 64
+#define MAX_CHAINERS_PER_REQUEST 5
+#define MAX_VERIFIERS_PER_REQUEST MAX_CHAINERS_PER_REQUEST
+
+
+#define MAX_DATA_PER_REQUEST 1028
+#define VERIFY_BLOCK_SIZE_BYTES 256
+#define MAX_BLOCKS_PER_REQUEST (unsigned int)(MAX_DATA_PER_REQUEST / VERIFY_BLOCK_SIZE_BYTES) + 1
+
+#define TARGET_BLOCK_DURATION_SECONDS 30
 
 typedef struct
 {
@@ -54,13 +72,15 @@ typedef struct
 
     // transaction showing money for miner
 
+
     // "alive" verifiers, addresses + signature from last block proving they are active
-    //  - list of available verifiers or if overflowing, list of random verifiers
+    //  - list of available verifiers or if overflowing, list of verifiers that weren't in last block
     //  - a verifier is an address with a minimum amount of $$ that is broadcasting it wants to participate
     unsigned int verifier_count;
     struct
     {
-        // verifier address, verifier prev nonce signature
+        Address address;
+        Signature s; // signature is H(address + prev hash)
     } verifiers[MAX_VERIFIERS_PER_BLOCK];
 
     // ---
@@ -78,19 +98,25 @@ typedef struct
         // result?
         // maybe keep in IPFS / bitorrent?
 
-        // signatures of chainers
-        // A sign, B sign
-        // signatures of verifiers
-        // E sign, F sign, etc
-
-
-        byte status; // success, fail
-
-        // if success
-        struct
+        // snoopers get 50% of the 95%
+        struct SnooperResult
         {
-            
-        };
+            int nonce; // each verifier increments the nonce
+            HashedBlock signed_encrypted_blocks[MAX_BLOCKS_PER_REQUEST];
+        }* snooper_results;
+        // witnesses get 50% of the 95%
+        struct WitnessResult
+        {
+            int nonce;
+            HashedBlock signed_plaintext_blocks[MAX_BLOCKS_PER_REQUEST];
+        }* witness_results;
+
+        byte status;
+
+        // stored elsewhere in pc, bc too much mem otherwise
+        byte* data;
+        // make optional??
+        byte* encrypted_data;
     } requests_completed[MAX_REQUESTS_PER_BLOCK];
 
     // requests missing
@@ -160,4 +186,13 @@ void sync()
     
     // announce syncing
     // ann
+}
+
+int main()
+{
+    printf("%lu\n", sizeof(BlockShared));
+
+    BlockShared b;
+    
+    printf("%lu\n", sizeof(struct WitnessResult));
 }
