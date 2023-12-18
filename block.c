@@ -185,7 +185,7 @@ void sync()
     // ann
 }
 
-int main()
+void block_test()
 {
     printf("%lu\n", sizeof(BlockchainShared));
 

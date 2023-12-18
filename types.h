@@ -1,4 +1,5 @@
-#include <libressl/tls.h>
+#ifndef TYPES_H
+#define TYPES_H
 
 #ifndef bool
 typedef unsigned char bool;
@@ -16,3 +17,5 @@ typedef unsigned char byte;
 /* typedef struct { */
 /*     // hashes and shize */
 /* } Block; */
+
+#endif

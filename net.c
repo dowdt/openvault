@@ -4,7 +4,8 @@
 #include <string.h>
 #include <sys/socket.h>
 
-
+#include "types.h"
+#include "util.c"
 
 #ifdef __unix
 
@@ -23,24 +24,6 @@
 
 #endif
 
-void _assert(int cond, const char* msg, const char* file, unsigned int line)
-{
-    if (cond == 0)
-    {
-        fprintf(stderr, "Assertion failed! File %s, Line: %i, Message: %s\n", file, line, msg);
-        exit(-1);
-    }
-}
-
-int mini(int a, int b)
-{
-    if (a < b)
-        return a;
-    else
-        return b;
-}
-
-#define assert(cond, msg) _assert(cond, msg, __FILE__, __LINE__)
 
 // need a basic api to cover sockets and stuff
 // need to have each be abstract
@@ -244,14 +227,31 @@ Socket* net_connect(const char* ip_addr, unsigned short port)
 
         sock->is_local = 0;
 
+        /* struct addrinfo hints, *res; */
+        /* memset(&hints, 0, sizeof(hints)); */
+        /* hints.ai_family		= AF_INET; */
+        /* hints.ai_socktype	= SOCK_STREAM; */
+
+        struct hostent* he;
+        struct in_addr** addr_list;
+        he = gethostbyname((char*) ip_addr);
+        ip_addr = he->h_addr_list[0];
+
+        addr_list = (struct in_addr **) he->h_addr_list;
+
+        assert(addr_list != NULL, "Invalid hostname!");
+
         struct sockaddr_in addr;
-        addr.sin_addr.s_addr = inet_addr(ip_addr);
+        addr.sin_addr.s_addr = inet_addr(inet_ntoa(*addr_list[0]));
         addr.sin_family = AF_INET;
         addr.sin_port = htons(port);
 
-        // skip for now
-        // huh??
-        
+
+        /* char portbuf[6]; */
+        /* sprintf(portbuf, "%i", port); */
+
+        /* assert(getaddrinfo(ip_addr, "http", &hints, &res) != 0, "couldn't connect failed getaddrinfo"); */
+
         assert(connect(sock->fd, (struct sockaddr*) &addr, sizeof(addr)) == 0, "failed to connect");
 
         // should be connected now!
@@ -376,7 +376,8 @@ int main()
     printf("Received: %s\n", buf);
 
     // connect to HTTP server
-    s = net_connect("205.185.115.79", 80);
+    s = net_connect("lukesmith.xyz", 80);
+    /* s = net_connect("205.185.115.79", 80); */
     net_bind(s);
     net_send("GET / HTTP/1.1\r\nHost: lukesmith.xyz\r\n\r\n", 45);
     {
@@ -405,5 +406,4 @@ int main()
     //    - make a "whitepaper" lmao
     
     net_uninit();
-    return 0;
 }
