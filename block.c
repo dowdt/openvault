@@ -58,7 +58,7 @@ typedef struct
 #define VERIFY_BLOCK_SIZE_BYTES 256
 #define MAX_BLOCKS_PER_REQUEST (unsigned int)(MAX_DATA_PER_REQUEST / VERIFY_BLOCK_SIZE_BYTES) + 1
 
-#define TARGET_BLOCK_DURATION_SECONDS 30
+#define TARGET_BLOCK_DURATION_SECONDS 60
 
 typedef struct
 {
@@ -195,4 +195,5 @@ int main()
     BlockShared b;
     
     printf("%lu\n", sizeof(struct WitnessResult));
+    printf("%lu\n", sizeof(b.requests_completed));
 }
