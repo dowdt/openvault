@@ -42,8 +42,6 @@ int mini(int a, int b)
 
 #define assert(cond, msg) _assert(cond, msg, __FILE__, __LINE__)
 
-typedef unsigned char bool;
-
 // need a basic api to cover sockets and stuff
 // need to have each be abstract
 // needs to work on windows and on unix
@@ -241,6 +239,9 @@ Socket* net_connect(const char* ip_addr, unsigned short port)
         // actually get socket
         memset(sock, 0, sizeof(Socket));
         sock->fd = socket(AF_INET, SOCK_STREAM, 0);
+
+        // TODO: make this non blocking with fnctl or something else
+
         sock->is_local = 0;
 
         struct sockaddr_in addr;
@@ -374,16 +375,34 @@ int main()
     net_recv(buf, 8);
     printf("Received: %s\n", buf);
 
-
     // connect to HTTP server
-    s = net_connect("127.0.0.1", 8080);
+    s = net_connect("205.185.115.79", 80);
     net_bind(s);
-    net_send("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n", 41);
+    net_send("GET / HTTP/1.1\r\nHost: lukesmith.xyz\r\n\r\n", 45);
     {
         static char buf[1024];
+        // it is blocking!! sad!
         net_recv(buf, 1023);
         printf("HTTP response is: %s\n", buf);
     }
+
+    // send tls get requests?
+
+    // verifying system
+    //  - check tls cert
+    //  - check hashes
+    //  - make a whole heckin' blockchain
+    //    - handle transactions
+    //    - handle planning
+    //    - handle mining
+    //    - handle validating
+    //    - add tls checker
+    //  - verify the nodes?
+    //  - contest
+    //    - make the graphics to show what's going on in network
+    //  - docs
+    //    - explain how it all works...
+    //    - make a "whitepaper" lmao
     
     net_uninit();
     return 0;

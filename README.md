@@ -3,7 +3,7 @@ The goal here is to make a tool that can verify a web request actually happened.
 
 
 # Design
-- tool to record request
+- tool to record request?
     - make new private key?
     - make 
 - tool to verify recorded request is valid
@@ -15,4 +15,5 @@ The goal here is to make a tool that can verify a web request actually happened.
 - sadly using asymmetric encryption to verify parties isn't mainstream, since no standard -> hard to solve
 - fortunately TLS gives "robust" verification, at least for big players
 - show tool that can verify and solve these blocks
-- use TLS + proof of stake to record individual blocks
+- use TLS + proof of work + proof of stake to record individual blocks
+- show each ip running by making it host log file through http on port 80 (use qr code?)
