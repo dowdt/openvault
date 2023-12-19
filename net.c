@@ -235,11 +235,11 @@ Socket* net_connect(const char* ip_addr, unsigned short port)
         struct hostent* he;
         struct in_addr** addr_list;
         he = gethostbyname((char*) ip_addr);
+
+        assert(addr_list != NULL, "Invalid hostname!");
         ip_addr = he->h_addr_list[0];
 
         addr_list = (struct in_addr **) he->h_addr_list;
-
-        assert(addr_list != NULL, "Invalid hostname!");
 
         struct sockaddr_in addr;
         addr.sin_addr.s_addr = inet_addr(inet_ntoa(*addr_list[0]));
@@ -291,7 +291,7 @@ void net_close()
     s_current = NULL;
 }
 
-void net_send(void* buf, unsigned int size)
+unsigned int net_send(void* buf, unsigned int size)
 {
     assert(s_current != NULL, "Current socket not bound");
 
@@ -309,16 +309,17 @@ void net_send(void* buf, unsigned int size)
 
         // add to the ting
         arena_append(dest, buf, size);
+        return size;
     }
     else
     {
         // use the fds luke
-        send(s_current->fd, buf, size, MSG_NOSIGNAL);
         printf("sent!\n");
+        return send(s_current->fd, buf, size, MSG_NOSIGNAL);
     }
 }
 
-int net_recv(void* buf, unsigned int size)
+unsigned int net_recv(void* buf, unsigned int size)
 {
     assert(s_current != NULL, "Current socket not bound");
 
@@ -341,7 +342,13 @@ int net_recv(void* buf, unsigned int size)
     }
     else
     {
-        return recv(s_current->fd, buf, size, 0);
+        int res;
+        res = recv(s_current->fd, buf, size, 0);
+
+        assert(((int*)buf)[0] != 0, "shitshittshit");
+
+
+        return res;
     }
 }
 
@@ -350,7 +357,8 @@ int net_recv(void* buf, unsigned int size)
 // UDP is obvs more appropriate but for demo TCP makes sense, plus https connections easiest with tcp
 // 
 
-int main()
+/* int main() */
+void net_test()
 {
     net_init();
 
