@@ -288,6 +288,16 @@ Socket* net_listen(unsigned short port)
 
 void net_close()
 {
+    if (s_current->is_local)
+    {
+        arena_free((Arena*) &s_current->from_owner);
+        arena_free((Arena*) &s_current->for_owner);
+    }
+    else
+    {
+        close(s_current->fd);
+    }
+
     s_current = NULL;
 }
 
@@ -319,9 +329,13 @@ unsigned int net_send(void* buf, unsigned int size)
     }
 }
 
-unsigned int net_recv(void* buf, unsigned int size)
+int net_recv(void* buf, unsigned int size)
 {
-    assert(s_current != NULL, "Current socket not bound");
+    // assert(s_current != NULL, "Current socket not bound");
+    if (s_current == NULL)
+    {
+        return -1;
+    }
 
     if (s_current->is_local)
     {
@@ -343,10 +357,11 @@ unsigned int net_recv(void* buf, unsigned int size)
     else
     {
         int res;
+        // XXX: this blocks even when connection should close
         res = recv(s_current->fd, buf, size, 0);
+        printf("+--------------------->res:%i\n", res);
 
         assert(((int*)buf)[0] != 0, "shitshittshit");
-
 
         return res;
     }

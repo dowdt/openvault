@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 #define WITH_TLS_13
+// #define DEBUG
 #include "tlse/tlse.c"
 
 // for now just handling the verification
@@ -136,7 +137,8 @@ int main()
 
     printf("loaded certificates\n");
 
-    sock = net_connect("google.com", 443);
+#define HOST "wikipedia.org"
+    sock = net_connect(HOST, 443);
     net_bind(sock);
 
     printf("connected\n");
@@ -145,7 +147,7 @@ int main()
 
     // send get req and receive stuff
     {
-        unsigned int read_bytes;
+        int read_bytes;
         byte buf[4096];
 
         while ((read_bytes = net_recv(buf, 4096)) > 0)
@@ -157,15 +159,15 @@ int main()
             /* putchar('\n'); */
             printf("==>> READ: %i\n", read_bytes);
             // could be null validator
-            tls_consume_stream(context, buf, read_bytes, tls_default_verify);
+            tls_consume_stream(context, buf, read_bytes, NULL);
             send_pending(context); // bug here
 
             if (tls_established(context))
             {
                 printf("TLS ESTABLISHED\n");
-                unsigned char data[1024] = "GET / HTTP/1.1\r\nHost: google.com\r\n\r\n";
+                unsigned char request[] = "GET / HTTP/1.1\r\nHost: " HOST "\r\n\r\n";
 
-                int written = tls_write(context, data, 42);
+                int written = tls_write(context, request, strlen(request));
                 send_pending(context);
 
                 printf("sent data\n");
@@ -174,12 +176,22 @@ int main()
 
                 while ((read_bytes = net_recv(buf, 2048)) > 0)
                 {
+                    unsigned char data[1024];
+
                     printf("Reading\n");
-                    tls_consume_stream(context, buf, read_bytes, verify_certificate);
+                    tls_read_clear(context);
+                    tls_consume_stream(context, buf, read_bytes, NULL);
 
                     memset(data, 0, 1024);
                     int ret = tls_read(context, data, 1023);
+
                     printf("Read: %i, Got data: %s\n", ret, data);
+
+                    if (ret == 0)
+                    {
+                        // no more data, so close
+                        net_close();
+                    }
                 }
 
                 return 1;
