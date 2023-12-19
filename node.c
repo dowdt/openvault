@@ -136,7 +136,7 @@ int main()
 
     printf("loaded certificates\n");
 
-    sock = net_connect("lukesmith.xyz", 443);
+    sock = net_connect("google.com", 443);
     net_bind(sock);
 
     printf("connected\n");
@@ -163,7 +163,7 @@ int main()
             if (tls_established(context))
             {
                 printf("TLS ESTABLISHED\n");
-                unsigned char data[1024] = "GET / HTTP/1.1\r\nHost: lukesmith.xyz\r\n\r\n";
+                unsigned char data[1024] = "GET / HTTP/1.1\r\nHost: google.com\r\n\r\n";
 
                 int written = tls_write(context, data, 42);
                 send_pending(context);
