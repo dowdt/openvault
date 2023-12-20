@@ -309,9 +309,13 @@ void net_close(Socket* sock)
     sock = NULL;
 }
 
-unsigned int net_send(Socket* sock, void* buf, unsigned int size)
+int net_send(Socket* sock, void* buf, unsigned int size)
 {
-    assert(sock != NULL, "NULL socket not bound");
+    /* assert(sock != NULL, "NULL socket not bound"); */
+    if (sock == NULL)
+    {
+        return -1;
+    }
 
     if (sock->is_local)
     {

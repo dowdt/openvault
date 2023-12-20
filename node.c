@@ -117,32 +117,9 @@ bool send_pending(Socket* sock, struct TLSContext* context)
 
 int verify_certificate(struct TLSContext *context, struct TLSCertificate **certificate_chain, int len)
 {
+
     return no_error;
 }
-
-/* int tls_recv(void* ctx, Socket* socket, void* buf, unsigned int len) */
-/* { */
-/*     int tls_ret; */
-/*     int received_bytes; */
-/*     struct TLSContext* context = (struct TLSContext*) ctx; */
-
-/*     memset(buf, 0, len); */
-/*     received_bytes = net_recv(socket, buf, len); */
-
-/*     if (received_bytes == -1) */
-/*     { */
-/*         return received_bytes; */
-/*     } */
-
-/*     // call tls */
-/*     memset(buf, 0, len); */
-/*     tls_consume_stream(context, buf, received_bytes, verify_certificate); */
-
-/*     // return your buf */
-/*     tls_ret = tls_read(context, buf, len); */
-
-/*     return tls_ret; */
-/* } */
 
 int main()
 {
@@ -173,11 +150,13 @@ int main()
 
 /* #define HOST "cedars.xyz" */
 /* #define HOST "www.wikipedia.org" */
-#define HOST "www.google.com"
+/* #define HOST "www.google.com" */
+/* #define HOST "www.archlinux.org" */
+/* #define HOST "suckless.org" */
 /* #define HOST "bestmotherfucking.website" */
 /* #define HOST "odin-lang.org" */
 /* #define HOST "www.slowernews.com" */
-/* #define HOST "stackoverflow.com" */
+#define HOST "en.wikipedia.org"
 
     // TODO: there is a random segfault here occasionally, could be bind or connect
     sock = net_connect(HOST, 443);
@@ -209,18 +188,17 @@ int main()
                 if (!sent_request)
                 {
                     printf("TLS ESTABLISHED\n");
-                    unsigned char request[] = "GET / HTTP/1.1\r\nHost: " HOST "\r\n\r\n";
+                    unsigned char request[] = "GET /wiki/Richard HTTP/1.1\r\nHost: " HOST "\r\n\r\n";
 
                     int written = tls_write(context, request, strlen((char*)request));
                     send_pending(sock, context);
                     printf("sent data\n");
                     sent_request = 1;
                 }
-                /* while ((read_bytes = net_recv(sock, buf, 4096)) > 0) */
                 else
                 {
                     // NOTE: DATA_SIZE has to be smaller than http buffer, so that it fits entirely within one call to http_read_from_buf
-#define DATA_SIZE 1028
+#define DATA_SIZE 512
                     unsigned char data[DATA_SIZE];
 
                     printf("Reading\n");
@@ -230,11 +208,30 @@ int main()
                     int ret;
                     while ((ret = tls_read(context, data, DATA_SIZE)) > 0)
                     {
+                        static bool parsed_header = 0;
+                        static int last = 0;
                         printf("Got decrypted text size: %i\n", ret);
 
                         // what happens if http reads but has nothing to write?
+                        last = msg.state.total;
                         int h = http_read_from_buf(data, ret, &msg);
                         n_loops += 1;
+
+
+                        // if it's parsing the header, this gets returned
+                        if (!parsed_header)
+                        {
+                            if (msg.state.chunk != -1 || msg.header.length != -1)
+                                parsed_header = 1;
+                        }
+                        else
+                        {
+                            if (ret - (msg.state.offset - msg.state.buf) != 0)
+                            {
+                                printf("ret: %i, len: %i, total: %i, header length: %i, loop %i\n", ret, msg.length, msg.state.total, msg.header.length, n_loops);
+                                exit(-1);
+                            }
+                        }
 
                         printf("ret: %i, len: %i, total: %i, header length: %i\n", h, msg.length, msg.state.total, msg.header.length);
 
@@ -245,15 +242,24 @@ int main()
                         }
                         printf("h val: %i\n", h);
 
-                        /* if (strstr(msg.content, "</html>") != NULL) */
-                        /* { */
-                        /*     int a = 2; */
-                        /*     printf("saw end of html tag\n"); */
-                        /* } */
+                        if (msg.content == NULL)
+                        {
+                                int a = 2;
+                        }
+                        if (msg.content != NULL)
+                        {
+                            if (strstr(msg.content, "</html>") != NULL)
+                            {
+                                int a = 2;
+                                printf("saw end of html tag\n");
+                            }
+                        }
 
                         if (msg.header.length == msg.state.total && msg.state.left == 0)
                         {
                             printf("Bye bye\n");
+                            // should close connection at this point
+                            net_close(sock);
                             return 1;
                         }
                     }
