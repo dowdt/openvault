@@ -172,8 +172,8 @@ int main()
     printf("loaded certificates\n");
 
 /* #define HOST "cedars.xyz" */
-#define HOST "www.wikipedia.org"
-/* #define HOST "www.google.com" */
+/* #define HOST "www.wikipedia.org" */
+#define HOST "www.google.com"
 /* #define HOST "bestmotherfucking.website" */
 /* #define HOST "odin-lang.org" */
 /* #define HOST "www.slowernews.com" */
