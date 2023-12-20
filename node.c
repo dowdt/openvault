@@ -167,7 +167,7 @@ int main()
 
     printf("loaded certificates\n");
 
-#define HOST "www.wikipedia.org"
+#define HOST "www.google.com"
 
     // TODO: there is a random segfault here occasionally, could be bind or connect
     sock = net_connect(HOST, 443);
@@ -212,17 +212,20 @@ int main()
                     printf("Reading\n");
                     tls_read_clear(context);
                     tls_consume_stream(context, buf, read_bytes, verify_certificate);
+                    send_pending(sock, context);
 
                     memset(data, 0, DATA_SIZE);
 
-                    // while loop to read all this also
                     int ret;
-                    while ((ret = tls_read(context, data, DATA_SIZE) > 0))
+                    while ((ret = tls_read(context, data, DATA_SIZE)) > 0)
                     {
 #if 1
                         printf("Got decrypted text\n");
                         static struct http_message msg;
-                        int ret = http_read_from_buf(data, ret, &msg);
+
+                        int h = http_read_from_buf(data, ret, &msg);
+
+                        printf("ret %i, len %i\n", h, msg.length);
 
                         if (msg.length > 0)
                         {
@@ -233,38 +236,6 @@ int main()
                         {
                             break;
                         }
-#else
-                        char* off;
-                        if (found_content)
-                        {
-                            /* if ((off = strstr((char*) data, "\r\n0\r\n\r\n")) != NULL) */
-                            /* { */
-                            /*     data[off - ((char*) data)] = '\0'; */
-                            /*     printf("%s", data); */
-                            /*     return 1; */
-                            /* } */
-
-                            printf("%s", data);
-                        }
-                        else if ((off = strstr((char*)data, "\r\n\r\n")) != NULL)
-                        {
-                            off += 4; // start of the actual stirng
-
-                            // print header
-                            printf("-----------HEADER------------\n");
-                            for (int i = 0; i < off - (char*)data; i++)
-                            {
-                                putchar(data[i]);
-                            }
-                            printf("-----------------------------\n");
-                            found_content = 1;
-                            printf("%s", off);
-                        }
-                        else
-                        {
-                            // keep ignoring for now...
-                        }
-#endif
                     }
                     // instead of manual parse, parse with libhttp
 
@@ -280,8 +251,6 @@ int main()
                     // content is actually just everything past the HTTP header
                     // so it's "\r\n\r\n" -> "\r\n0\r\n\r\n"
                 }
-
-                return 1;
             }
         }
     }
