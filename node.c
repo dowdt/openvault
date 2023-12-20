@@ -167,7 +167,7 @@ int main()
 
     printf("loaded certificates\n");
 
-#define HOST "www.google.com"
+#define HOST "cedars.xyz"
 
     // TODO: there is a random segfault here occasionally, could be bind or connect
     sock = net_connect(HOST, 443);
@@ -228,12 +228,20 @@ int main()
 
                         if (msg.length > 0)
                         {
-                            printf("%.*s", DATA_SIZE, msg.content);
+                            printf("%.*s\n", msg.length, msg.content);
+                            /* printf("Got message length: %i\n", msg.length); */
+                        }
+                        printf("h val: %i\n", h);
+
+                        if (strstr(msg.content, "</html>") != NULL)
+                        {
+                            int a = 2;
                         }
 
-                        if (ret == 0)
+                        if (msg.header.length == msg.state.total && msg.state.left == 0)
                         {
-                            break;
+                            printf("Bye bye\n");
+                            return 1;
                         }
                     }
                     // instead of manual parse, parse with libhttp
