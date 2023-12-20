@@ -194,7 +194,7 @@ int main()
             if (tls_established(context))
             {
                 // if sent probs?
-                /* if (!sent_request) */
+                if (!sent_request)
                 {
                     printf("TLS ESTABLISHED\n");
                     unsigned char request[] = "GET / HTTP/1.1\r\nHost: " HOST "\r\n\r\n";
@@ -204,7 +204,8 @@ int main()
                     printf("sent data\n");
                     sent_request = 1;
                 }
-                while ((read_bytes = net_recv(sock, buf, 4096)) > 0)
+                /* while ((read_bytes = net_recv(sock, buf, 4096)) > 0) */
+                else
                 {
                     static bool found_content = 0;
 #define DATA_SIZE 4096
