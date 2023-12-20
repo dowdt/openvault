@@ -1,0 +1,6 @@
+[submodule "tlse"]
+	path = tlse
+	url = git@github.com:dowdt/tlse.git
+[submodule "libhttp"]
+	path = libhttp
+	url = git@github.com:dowdt/libhttp.git
