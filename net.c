@@ -246,6 +246,17 @@ Socket* net_connect(const char* ip_addr, unsigned short port)
         addr.sin_family = AF_INET;
         addr.sin_port = htons(port);
 
+        // LINUX
+#ifdef __unix__
+        struct timeval tv;
+        tv.tv_sec = 3;
+        tv.tv_usec = 0;
+        setsockopt(sock->fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+#else
+        // WINDOWS
+        DWORD timeout = timeout_in_seconds * 1000;
+        setsockopt(sock->fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof timeout);
+#endif
 
         /* char portbuf[6]; */
         /* sprintf(portbuf, "%i", port); */
@@ -319,7 +330,7 @@ unsigned int net_send(void* buf, unsigned int size)
     }
 }
 
-unsigned int net_recv(void* buf, unsigned int size)
+int net_recv(void* buf, unsigned int size)
 {
     assert(s_current != NULL, "Current socket not bound");
 
