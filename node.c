@@ -1,3 +1,4 @@
+#include "libhttp/http.h"
 #include "net.c"
 #include "block.c"
 #include "tlse/tlse.h"
@@ -91,11 +92,12 @@ bool load_root_certificates(struct TLSContext* context)
 }
 
 
-void send_pending(Socket* sock, struct TLSContext* context)
+bool send_pending(Socket* sock, struct TLSContext* context)
 {
     // send handhake
     const unsigned char* buffer;
     unsigned int left;
+
     buffer = tls_get_write_buffer(context, &left);
     if (buffer != NULL)
     {
@@ -104,11 +106,38 @@ void send_pending(Socket* sock, struct TLSContext* context)
     }
 
     tls_buffer_clear(context);
+
+    return left;
 }
 
 int verify_certificate(struct TLSContext *context, struct TLSCertificate **certificate_chain, int len)
 {
     return no_error;
+}
+
+int tls_recv(void* ctx, Socket* socket, void* buf, unsigned int len)
+{
+    int tls_ret;
+    int received_bytes;
+    struct TLSContext* context = (struct TLSContext*) ctx;
+
+    memset(buf, 0, len);
+    received_bytes = net_recv(socket, buf, len);
+
+    if (received_bytes == -1)
+    {
+        return received_bytes;
+    }
+
+    // call tls
+    memset(buf, 0, len);
+    tls_read_clear(context);
+    tls_consume_stream(context, buf, received_bytes, verify_certificate);
+
+    // return your buf
+    tls_ret = tls_read(context, buf, len);
+
+    return tls_ret;
 }
 
 int main()
@@ -153,14 +182,10 @@ int main()
     {
         int read_bytes;
         byte buf[4096];
+        int sent_request = 0;
 
         while ((read_bytes = net_recv(sock, buf, 4096)) > 0)
         {
-            /* for (int i = 0; i < read_bytes; i++) */
-            /* { */
-            /*     printf("%x", buf[i]); */
-            /* } */
-            /* putchar('\n'); */
             printf("==>> READ: %i\n", read_bytes);
             // could be null validator
             tls_consume_stream(context, buf, read_bytes, NULL);
@@ -169,17 +194,16 @@ int main()
             if (tls_established(context))
             {
                 // if sent probs?
-                printf("TLS ESTABLISHED\n");
-                unsigned char request[] = "GET / HTTP/1.1\r\nHost: " HOST "\r\n\r\n";
+                /* if (!sent_request) */
+                {
+                    printf("TLS ESTABLISHED\n");
+                    unsigned char request[] = "GET / HTTP/1.1\r\nHost: " HOST "\r\n\r\n";
 
-                int written = tls_write(context, request, strlen((char*)request));
-                send_pending(sock, context);
-
-                printf("sent data\n");
-                sleep(1);
-
-                tls_read_clear(context);
-
+                    int written = tls_write(context, request, strlen((char*)request));
+                    send_pending(sock, context);
+                    printf("sent data\n");
+                    sent_request = 1;
+                }
                 while ((read_bytes = net_recv(sock, buf, 4096)) > 0)
                 {
                     static bool found_content = 0;
@@ -195,6 +219,21 @@ int main()
                     int ret;
                     while ((ret = tls_read(context, data, DATA_SIZE) > 0))
                     {
+#if 1
+                        printf("Got decrypted text\n");
+                        static struct http_message msg;
+                        int ret = http_read_from_buf(data, ret, &msg);
+
+                        if (msg.length > 0)
+                        {
+                            printf("%.*s", DATA_SIZE, msg.content);
+                        }
+
+                        if (ret == 0)
+                        {
+                            break;
+                        }
+#else
                         char* off;
                         if (found_content)
                         {
@@ -225,6 +264,7 @@ int main()
                         {
                             // keep ignoring for now...
                         }
+#endif
                     }
                     // instead of manual parse, parse with libhttp
 
