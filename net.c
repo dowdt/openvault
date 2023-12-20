@@ -1,3 +1,6 @@
+#ifndef NET_SOURCE_FILE
+#define NET_SOURCE_FILE
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -132,7 +135,6 @@ typedef struct Socket
 
 
 Arena net_arena;
-Socket* s_current = NULL;
 Socket* s_last_added = NULL;
 #ifdef LOCAL_SIM
 unsigned int user_current = 0;
@@ -188,11 +190,6 @@ void net_init()
 void net_uninit()
 {
     arena_free(&net_arena);
-}
-
-void net_bind(Socket* sock)
-{
-    s_current = sock;
 }
 
 Socket* net_connect(const char* ip_addr, unsigned short port)
@@ -297,35 +294,35 @@ Socket* net_listen(unsigned short port)
     return new_sock;
 }
 
-void net_close()
+void net_close(Socket* sock)
 {
-    if (s_current->is_local)
+    if (sock->is_local)
     {
-        arena_free((Arena*) &s_current->from_owner);
-        arena_free((Arena*) &s_current->for_owner);
+        arena_free((Arena*) &sock->from_owner);
+        arena_free((Arena*) &sock->for_owner);
     }
     else
     {
-        close(s_current->fd);
+        close(sock->fd);
     }
 
-    s_current = NULL;
+    sock = NULL;
 }
 
-unsigned int net_send(void* buf, unsigned int size)
+unsigned int net_send(Socket* sock, void* buf, unsigned int size)
 {
-    assert(s_current != NULL, "Current socket not bound");
+    assert(sock != NULL, "NULL socket not bound");
 
-    if (s_current->is_local)
+    if (sock->is_local)
     {
         Arena* dest;
-        if (user_current == s_current->owner_id)
+        if (user_current == sock->owner_id)
         {
-            dest = (Arena*) &s_current->from_owner;
+            dest = (Arena*) &sock->from_owner;
         }
         else
         {
-            dest = (Arena*) &s_current->for_owner;
+            dest = (Arena*) &sock->for_owner;
         }
 
         // add to the ting
@@ -336,28 +333,28 @@ unsigned int net_send(void* buf, unsigned int size)
     {
         // use the fds luke
         printf("sent!\n");
-        return send(s_current->fd, buf, size, MSG_NOSIGNAL);
+        return send(sock->fd, buf, size, MSG_NOSIGNAL);
     }
 }
 
-int net_recv(void* buf, unsigned int size)
+int net_recv(Socket* sock, void* buf, unsigned int size)
 {
-    // assert(s_current != NULL, "Current socket not bound");
-    if (s_current == NULL)
+    // assert(sock != NULL, "Current socket not bound");
+    if (sock == NULL)
     {
         return -1;
     }
 
-    if (s_current->is_local)
+    if (sock->is_local)
     {
         Buffer* dest;
-        if (user_current == s_current->owner_id)
+        if (user_current == sock->owner_id)
         {
-            dest = &s_current->for_owner;
+            dest = &sock->for_owner;
         }
         else
         {
-            dest = &s_current->from_owner;
+            dest = &sock->from_owner;
         }
 
         int number_of_bytes_to_be_read = mini(dest->arena.allocated - dest->bytes_read, size);
@@ -369,7 +366,7 @@ int net_recv(void* buf, unsigned int size)
     {
         int res;
         // XXX: this blocks even when connection should close
-        res = recv(s_current->fd, buf, size, 0);
+        res = recv(sock->fd, buf, size, 0);
         printf("+--------------------->res:%i\n", res);
 
         assert(((int*)buf)[0] != 0, "shitshittshit");
@@ -398,26 +395,23 @@ void net_test()
     assert(s->is_local, "otherwise none of this makes sense");
     assert(s == s2, "otherwise none of this makes sense");
 
-    net_bind(s2);
     net_user_bind(1);
-    net_send("hello", 5);
+    net_send(s2, "hello", 5);
 
-    net_bind(s);
     net_user_bind(0);
     printf("owner %i\n", s->owner_id);
     static char buf[8];
-    net_recv(buf, 8);
+    net_recv(s, buf, 8);
     printf("Received: %s\n", buf);
 
     // connect to HTTP server
     s = net_connect("lukesmith.xyz", 80);
     /* s = net_connect("205.185.115.79", 80); */
-    net_bind(s);
-    net_send("GET / HTTP/1.1\r\nHost: lukesmith.xyz\r\n\r\n", 45);
+    net_send(s, "GET / HTTP/1.1\r\nHost: lukesmith.xyz\r\n\r\n", 45);
     {
         static char buf[1024];
         // it is blocking!! sad!
-        net_recv(buf, 1023);
+        net_recv(s, buf, 1023);
         printf("HTTP response is: %s\n", buf);
     }
 
@@ -441,3 +435,4 @@ void net_test()
     
     net_uninit();
 }
+#endif

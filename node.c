@@ -7,6 +7,7 @@
 #define WITH_TLS_13
 // #define DEBUG
 #include "tlse/tlse.c"
+#include "libhttp/http.c"
 
 // for now just handling the verification
 
@@ -90,7 +91,7 @@ bool load_root_certificates(struct TLSContext* context)
 }
 
 
-void send_pending(struct TLSContext* context)
+void send_pending(Socket* sock, struct TLSContext* context)
 {
     // send handhake
     const unsigned char* buffer;
@@ -99,7 +100,7 @@ void send_pending(struct TLSContext* context)
     if (buffer != NULL)
     {
         // XXX: should try and send incrementally actually
-        printf("sending: %i/%i\n", net_send((void*) buffer, left), left);
+        printf("sending: %i/%i\n", net_send(sock, (void*) buffer, left), left);
     }
 
     tls_buffer_clear(context);
@@ -137,21 +138,23 @@ int main()
 
     printf("loaded certificates\n");
 
-#define HOST "lukesmith.xyz"
+#define HOST "www.wikipedia.org"
 
+    // TODO: there is a random segfault here occasionally, could be bind or connect
     sock = net_connect(HOST, 443);
-    net_bind(sock);
+
+    // let's add a middle man
 
     printf("connected\n");
     tls_client_connect(context);
-    send_pending(context);
+    send_pending(sock, context);
 
     // send get req and receive stuff
     {
         int read_bytes;
         byte buf[4096];
 
-        while ((read_bytes = net_recv(buf, 4096)) > 0)
+        while ((read_bytes = net_recv(sock, buf, 4096)) > 0)
         {
             /* for (int i = 0; i < read_bytes; i++) */
             /* { */
@@ -161,7 +164,7 @@ int main()
             printf("==>> READ: %i\n", read_bytes);
             // could be null validator
             tls_consume_stream(context, buf, read_bytes, NULL);
-            send_pending(context); // bug here
+            send_pending(sock, context); // bug here
 
             if (tls_established(context))
             {
@@ -170,37 +173,72 @@ int main()
                 unsigned char request[] = "GET / HTTP/1.1\r\nHost: " HOST "\r\n\r\n";
 
                 int written = tls_write(context, request, strlen((char*)request));
-                send_pending(context);
+                send_pending(sock, context);
 
                 printf("sent data\n");
                 sleep(1);
 
                 tls_read_clear(context);
 
-                while ((read_bytes = net_recv(buf, 2048)) > 0)
+                while ((read_bytes = net_recv(sock, buf, 4096)) > 0)
                 {
-                    unsigned char data[1024];
+                    static bool found_content = 0;
+#define DATA_SIZE 4096
+                    unsigned char data[DATA_SIZE];
                     printf("Reading\n");
                     tls_read_clear(context);
                     tls_consume_stream(context, buf, read_bytes, verify_certificate);
 
-                    memset(data, 0, 1024);
+                    memset(data, 0, DATA_SIZE);
 
                     // while loop to read all this also
                     int ret;
-                    while ((ret = tls_read(context, data, 1023) > 0))
+                    while ((ret = tls_read(context, data, DATA_SIZE) > 0))
                     {
-                        printf("Read: %i, Got data: %s\n", ret, data);
+                        char* off;
+                        if (found_content)
+                        {
+                            /* if ((off = strstr((char*) data, "\r\n0\r\n\r\n")) != NULL) */
+                            /* { */
+                            /*     data[off - ((char*) data)] = '\0'; */
+                            /*     printf("%s", data); */
+                            /*     return 1; */
+                            /* } */
+
+                            printf("%s", data);
+                        }
+                        else if ((off = strstr((char*)data, "\r\n\r\n")) != NULL)
+                        {
+                            off += 4; // start of the actual stirng
+
+                            // print header
+                            printf("-----------HEADER------------\n");
+                            for (int i = 0; i < off - (char*)data; i++)
+                            {
+                                putchar(data[i]);
+                            }
+                            printf("-----------------------------\n");
+                            found_content = 1;
+                            printf("%s", off);
+                        }
+                        else
+                        {
+                            // keep ignoring for now...
+                        }
                     }
+                    // instead of manual parse, parse with libhttp
+
+                    // need to look for '\r\n\r\n'
 
                     // is net_close the culprit?
                     // looks like it
                     // net_close();
 
-                    if (read_bytes == 0)
-                        return 1;
 
-                    printf("boutta get stuck\n");
+                    // let's only print the data in the content
+
+                    // content is actually just everything past the HTTP header
+                    // so it's "\r\n\r\n" -> "\r\n0\r\n\r\n"
                 }
 
                 return 1;
