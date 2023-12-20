@@ -219,7 +219,6 @@ int main()
                     int ret;
                     while ((ret = tls_read(context, data, DATA_SIZE)) > 0)
                     {
-#if 1
                         printf("Got decrypted text\n");
                         static struct http_message msg;
 
