@@ -137,7 +137,8 @@ int main()
 
     printf("loaded certificates\n");
 
-#define HOST "wikipedia.org"
+#define HOST "lukesmith.xyz"
+
     sock = net_connect(HOST, 443);
     net_bind(sock);
 
@@ -164,34 +165,42 @@ int main()
 
             if (tls_established(context))
             {
+                // if sent probs?
                 printf("TLS ESTABLISHED\n");
                 unsigned char request[] = "GET / HTTP/1.1\r\nHost: " HOST "\r\n\r\n";
 
-                int written = tls_write(context, request, strlen(request));
+                int written = tls_write(context, request, strlen((char*)request));
                 send_pending(context);
 
                 printf("sent data\n");
+                sleep(1);
 
                 tls_read_clear(context);
 
                 while ((read_bytes = net_recv(buf, 2048)) > 0)
                 {
                     unsigned char data[1024];
-
                     printf("Reading\n");
                     tls_read_clear(context);
-                    tls_consume_stream(context, buf, read_bytes, NULL);
+                    tls_consume_stream(context, buf, read_bytes, verify_certificate);
 
                     memset(data, 0, 1024);
-                    int ret = tls_read(context, data, 1023);
 
-                    printf("Read: %i, Got data: %s\n", ret, data);
-
-                    if (ret == 0)
+                    // while loop to read all this also
+                    int ret;
+                    while ((ret = tls_read(context, data, 1023) > 0))
                     {
-                        // no more data, so close
-                        net_close();
+                        printf("Read: %i, Got data: %s\n", ret, data);
                     }
+
+                    // is net_close the culprit?
+                    // looks like it
+                    // net_close();
+
+                    if (read_bytes == 0)
+                        return 1;
+
+                    printf("boutta get stuck\n");
                 }
 
                 return 1;
