@@ -117,9 +117,18 @@ bool send_pending(Socket* sock, struct TLSContext* context)
 
 int verify_certificate(struct TLSContext *context, struct TLSCertificate **certificate_chain, int len)
 {
-
     return no_error;
 }
+
+
+
+void node_update()
+{
+    // 1. if new block undo all work
+    // 2. compute each bounty's procedure
+    // 3. send message to peer and wait for 
+}
+
 
 int main()
 {
@@ -163,7 +172,6 @@ int main()
 
     // let's add a middle man
 
-    printf("connected\n");
     tls_client_connect(context);
     send_pending(sock, context);
 
@@ -177,7 +185,6 @@ int main()
         static struct http_message msg;
         while ((read_bytes = net_recv(sock, buf, 4096)) > 0)
         {
-            printf("==>> READ: %i\n", read_bytes);
             // could be null validator
             tls_consume_stream(context, buf, read_bytes, NULL);
             /* send_pending(sock, context); // bug here */
@@ -187,12 +194,10 @@ int main()
                 // if sent probs?
                 if (!sent_request)
                 {
-                    printf("TLS ESTABLISHED\n");
                     unsigned char request[] = "GET /wiki/Richard HTTP/1.1\r\nHost: " HOST "\r\n\r\n";
 
                     int written = tls_write(context, request, strlen((char*)request));
                     send_pending(sock, context);
-                    printf("sent data\n");
                     sent_request = 1;
                 }
                 else
@@ -201,8 +206,6 @@ int main()
 #define DATA_SIZE 512
                     unsigned char data[DATA_SIZE];
 
-                    printf("Reading\n");
-
                     memset(data, 0, DATA_SIZE);
 
                     int ret;
@@ -210,7 +213,6 @@ int main()
                     {
                         static bool parsed_header = 0;
                         static int last = 0;
-                        printf("Got decrypted text size: %i\n", ret);
 
                         // what happens if http reads but has nothing to write?
                         last = msg.state.total;
@@ -218,49 +220,17 @@ int main()
                         n_loops += 1;
 
 
-                        // if it's parsing the header, this gets returned
-                        if (!parsed_header)
-                        {
-                            if (msg.state.chunk != -1 || msg.header.length != -1)
-                                parsed_header = 1;
-                        }
-                        else
-                        {
-                            if (ret - (msg.state.offset - msg.state.buf) != 0)
-                            {
-                                printf("ret: %i, len: %i, total: %i, header length: %i, loop %i\n", ret, msg.length, msg.state.total, msg.header.length, n_loops);
-                                exit(-1);
-                            }
-                        }
-
-                        printf("ret: %i, len: %i, total: %i, header length: %i\n", h, msg.length, msg.state.total, msg.header.length);
-
                         if (msg.length > 0)
                         {
                             printf("%.*s\n", msg.length, msg.content);
                             /* printf("Got message length: %i\n", msg.length); */
                         }
-                        printf("h val: %i\n", h);
-
-                        if (msg.content == NULL)
-                        {
-                                int a = 2;
-                        }
-                        if (msg.content != NULL)
-                        {
-                            if (strstr(msg.content, "</html>") != NULL)
-                            {
-                                int a = 2;
-                                printf("saw end of html tag\n");
-                            }
-                        }
 
                         if (msg.header.length == msg.state.total && msg.state.left == 0)
                         {
-                            printf("Bye bye\n");
+                            /* printf("Bye bye\n"); */
                             // should close connection at this point
                             net_close(sock);
-                            return 1;
                         }
                     }
                     // instead of manual parse, parse with libhttp

@@ -6,6 +6,7 @@
 
 #include <string.h>
 #include <sys/socket.h>
+#include <resolv.h>
 
 #include "types.h"
 #include "util.c"
@@ -224,24 +225,41 @@ Socket* net_connect(const char* ip_addr, unsigned short port)
 
         sock->is_local = 0;
 
-        /* struct addrinfo hints, *res; */
-        /* memset(&hints, 0, sizeof(hints)); */
-        /* hints.ai_family		= AF_INET; */
-        /* hints.ai_socktype	= SOCK_STREAM; */
+        struct addrinfo hints, *addr;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family		= AF_INET;
+        hints.ai_socktype	= SOCK_STREAM;
 
-        struct hostent* he;
-        struct in_addr** addr_list;
-        he = gethostbyname((char*) ip_addr);
+        int status = getaddrinfo(ip_addr, NULL, &hints, &addr);
+        assert(status == 0, "failed to getaddrinfo");
+        assert(addr != NULL, "couldn't find address");
 
-        assert(addr_list != NULL, "Invalid hostname!");
-        ip_addr = he->h_addr_list[0];
+        /* for (struct addrinfo* p = res; p != NULL; p = res->ai_next) */
+        /* { */
+            
+        /* } */
 
-        addr_list = (struct in_addr **) he->h_addr_list;
+        /* struct hostent* he; */
+        /* struct in_addr** addr_list; */
+        /* he = gethostbyname((char*) ip_addr); */
+        /* if (he == NULL) */
+        /* { */
+        /*     res_init(); */
+        /*     he = gethostbyname((char*) ip_addr); */
+        /* } */
 
-        struct sockaddr_in addr;
-        addr.sin_addr.s_addr = inet_addr(inet_ntoa(*addr_list[0]));
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(port);
+        /* printf("%s\n", ip_addr); */
+        /* assert(addr_list != NULL, "Invalid hostname!"); */
+        /* ip_addr = he->h_addr_list[0]; */
+
+        /* addr_list = (struct in_addr **) he->h_addr_list; */
+
+        /* struct sockaddr_in addr; */
+        /* addr.sin_addr.s_addr = inet_addr(inet_ntoa(*addr_list[0])); */
+        /* addr.sin_family = AF_INET; */
+        /* addr.sin_port = htons(port); */
+
+        ((struct sockaddr_in*)addr->ai_addr)->sin_port = htons(port);
 
         // LINUX
 #ifdef __unix__
@@ -260,7 +278,7 @@ Socket* net_connect(const char* ip_addr, unsigned short port)
 
         /* assert(getaddrinfo(ip_addr, "http", &hints, &res) != 0, "couldn't connect failed getaddrinfo"); */
 
-        assert(connect(sock->fd, (struct sockaddr*) &addr, sizeof(addr)) == 0, "failed to connect");
+        assert(connect(sock->fd, (struct sockaddr*) addr->ai_addr, addr->ai_addrlen) == 0, "failed to connect");
 
         // should be connected now!
     }
@@ -336,7 +354,7 @@ int net_send(Socket* sock, void* buf, unsigned int size)
     else
     {
         // use the fds luke
-        printf("sent!\n");
+        // printf("sent!\n");
         return send(sock->fd, buf, size, MSG_NOSIGNAL);
     }
 }
@@ -371,7 +389,7 @@ int net_recv(Socket* sock, void* buf, unsigned int size)
         int res;
         // XXX: this blocks even when connection should close
         res = recv(sock->fd, buf, size, 0);
-        printf("+--------------------->res:%i\n", res);
+        // printf("+--------------------->res:%i\n", res);
 
         assert(((int*)buf)[0] != 0, "shitshittshit");
 
