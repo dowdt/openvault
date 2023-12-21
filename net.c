@@ -141,6 +141,12 @@ void net_uninit()
     arena_free(&net_arena);
 }
 
+void ip_int_to_str(unsigned int ip, char *ret_str)
+{
+  byte *b = (byte *)&ip;
+  sprintf(ret_str, "%i.%i.%i.%i", b[0], b[1], b[2], b[3]);
+}
+
 
 static atomic_ushort port_last = 29170;
 unsigned short net_rand_port()
@@ -176,22 +182,19 @@ void net_set_blocking(Socket* sock, int should_block)
     net_set_blocking_fd(sock->fd, should_block);
 }
 
-Socket* net_connect(const char* ip_addr, unsigned short port, bool blocking)
+Socket* net_connect_ip_with_fd(int fd, unsigned int ip, char* ip_addr, unsigned short port)
 {
     Socket* sock;
-    int fd, status;
+    char buf[12 + 4 + 1];
+    int status;
 
-    // actually get socket
-    fd = socket(AF_INET, SOCK_STREAM, 0);
-
-    if (fd == -1)
+    if (ip_addr == NULL)
     {
-        printf("this happened: %s\n", strerror(errno));
-        
-        exit(-1);     
+        memset(buf, 0, 17);
+
+        ip_int_to_str(ip, buf);
+        ip_addr = buf;
     }
-    assert(fd != -1, "if this happened wth is going on");
-    net_set_blocking_fd(fd, blocking);
 
     // TODO: make this non blocking with fnctl or something else
     struct addrinfo hints, *addr;
@@ -219,6 +222,7 @@ Socket* net_connect(const char* ip_addr, unsigned short port, bool blocking)
 
     if (status != 0)
     {
+        /* printf("??? %s\n", strerror(errno)); */
         close(fd);
         return NULL;
     }
@@ -227,6 +231,48 @@ Socket* net_connect(const char* ip_addr, unsigned short port, bool blocking)
     sock->fd = fd;
     return sock;
 }
+
+Socket* net_connect(const char* ip_addr, unsigned short port, bool blocking)
+{
+    Socket* sock;
+    int fd, status;
+
+    // actually get socket
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+
+    if (fd == -1)
+    {
+        printf("this happened: %s\n", strerror(errno));
+        
+        exit(-1);     
+    }
+    assert(fd != -1, "if this happened wth is going on");
+
+    net_set_blocking_fd(fd, blocking);
+
+    return net_connect_ip_with_fd(fd, 0, (char*) ip_addr, port);
+}
+
+int net_sock_fd(bool blocking)
+{
+    int fd;
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    net_set_blocking_fd(fd, blocking);
+    return  fd;
+}
+
+Socket* net_connect_ip(unsigned int ip, unsigned short port, bool blocking)
+{
+    char str[12 + 4 + 1];
+    memset(str, 0, 17);
+
+    ip_int_to_str(ip, str);
+    /* printf("%s\n", str); */
+
+    return net_connect(str, port, blocking);
+
+}
+
 
 // what to do if someone connects to us?
 Socket* net_listen(unsigned short port)
@@ -245,11 +291,11 @@ Socket* net_listen(unsigned short port)
 	address.sin_port = htons(port);
 
     assert(bind(fd, (struct sockaddr*) &address, sizeof(address)) == 0, "couldn't bind to port probably taken");
-    printf("%s\n", strerror(errno));
+    /* printf("%s\n", strerror(errno)); */
     // TODO: check if there's a better number
     assert(listen(fd, 0) == 0, "couldn't listen port is probably taken");
     
-    printf("%s\n", strerror(errno));
+    /* printf("%s\n", strerror(errno)); */
 
     Socket* sock = (Socket*) arena_calloc(&net_arena, sizeof(Socket));
     sock->fd = fd;
