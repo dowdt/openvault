@@ -1,17 +1,20 @@
 #include "libhttp/http.h"
-#include "net.c"
 #include "block.c"
 #include "tlse/tlse.h"
 #include <dirent.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/select.h>
 #include <threads.h>
+
 
 #define WITH_TLS_13
 /* #define DEBUG */
 #include "tlse/tlse.c"
 #include "libhttp/http.c"
+
+#include "net.c"
 
 // for now just handling the verification
 
@@ -148,7 +151,10 @@ int dns_server(void* args)
     int peer_current = 0;
 
     Socket* server;
-    server = net_listen(1313);
+    server = net_listen(DEFAULT_DNS_PORT);
+
+    /* int flags = fcntl(server->fd, F_GETFL, 0); */
+    /* fcntl(server->fd, F_SETFL, flags | O_NONBLOCK); */
 
     int connections = 0;
     struct sockaddr c_addr;
@@ -156,15 +162,20 @@ int dns_server(void* args)
 
     for(;;)
     {
-        Socket* conn = net_accept(server, &c_addr, &c_addr_len);
+        /* printf("waiting to accept!\n"); */
+        Socket* conn;
+        while ((conn = net_accept(server, &c_addr, &c_addr_len)) == NULL);
+        /* printf("accepted!\n"); */
 
-        // send 5 peers and then disconnect
-        int index = rand() % 16;
-        net_send(conn, &peers[(index - 2) % 16], sizeof(Peer));
-        net_send(conn, &peers[(index - 1) % 16], sizeof(Peer));
-        net_send(conn, &peers[(  index  ) % 16], sizeof(Peer));
-        net_send(conn, &peers[(index + 1) % 16], sizeof(Peer));
-        net_send(conn, &peers[(index + 2) % 16], sizeof(Peer));
+
+        net_recv(conn, &peers[peer_current].port, sizeof(short));
+
+        int index = (rand() ^ rand() ^ rand()) % 16;
+        for (int i = 0; i < 16; i++)
+        {
+            net_send(conn, &peers[(index + rand() + i) % 16], sizeof(Peer));
+        }
+        /* printf("sent 16 peers\n"); */
 
         net_close(conn);
 
@@ -179,7 +190,6 @@ int dns_server(void* args)
         /* } */
 
         peers[peer_current].ip = (((struct sockaddr_in*) &c_addr)->sin_addr.s_addr);
-        peers[peer_current].port = (((struct sockaddr_in*) &c_addr)->sin_port);
 
         connections ++;
         peer_current ++;
@@ -196,54 +206,84 @@ typedef struct
     Socket* listening;
 } Node;
 
-Node* node_init()
+int node_init(void* arg)
 {
-    Node n = { 0 };
+    Node* n = arg;
+
     // connect to peers
-
-    Socket* dns_sock = net_connect(DEFAULT_DNS_IP, DEFAULT_DNS_PORT);
-
     // send it a listening socket on our end
     unsigned short port = net_rand_port();
-    n.listening = net_listen(port);
+    n->listening = net_listen(port);
 
-    // dns gets port
+    fd_set leftb;
+
+    FD_ZERO(&leftb);
+
+    Socket* dns_sock = net_connect(DEFAULT_DNS_IP, DEFAULT_DNS_PORT, 1);
+
     net_send(dns_sock, &port, sizeof(short));
 
-    Peer candidate_peers[5];
-    net_recv(dns_sock, &candidate_peers, sizeof(Peer) * 5);
+    Peer candidate_peers[16];
+    net_recv(dns_sock, &candidate_peers, sizeof(Peer) * 16);
+    net_close(dns_sock);
 
-    // basically sit wait until we've got 5 confirmed connections
-    // try connecting to a candidate
-    for (int i = 0; i < 5; i++)
+    while (n->peers_connected < 5)
     {
-        char ip_str[17];
-        Socket* conn;
-        memset(ip_str, 0, 17);
 
-        ip_int_to_str(candidate_peers[i].ip, ip_str);
+        /* printf("%i is looping\n", n->address.a); */
+        FD_SET(n->listening->fd, &leftb);
 
-        conn = net_connect(ip_str, candidate_peers[i].port);
+        struct timeval t;
+        t.tv_sec = 0;
+        t.tv_usec = 10000;
 
-        if (conn != NULL)
+        int status = select(FD_SETSIZE, &leftb, NULL, NULL, &t);
+        if (status < 0)
         {
-            n.peers[n.peers_connected] = conn;
-            n.peers_connected += 1;
+            printf("error!!!\n");
+            exit(-1);
+        }
+
+        if (FD_ISSET(n->listening->fd, &leftb))
+        {
+            printf("%i: someone tried connecting\n", n->address.a);
+
+            // try accepting a connection
+            Socket* conn = net_accept(n->listening, NULL, NULL);
+            if (conn != NULL)
+            {
+                n->peers[n->peers_connected] = conn;
+                n->peers_connected += 1;
+                printf("%i: Found %i peers!\n", n->address.a, n->peers_connected);
+            }
+        }
+
+        // try to connect to one of the 12 peers
+        /* net_set_blocking(); */
+        for (int i = 0; i < 16; i++)
+        {
+            char ip_str[17];
+            Socket* conn;
+            memset(ip_str, 0, 17);
+
+            ip_int_to_str(candidate_peers[i].ip, ip_str);
+
+            if (port != candidate_peers[i].port)
+            {
+                // how do I check if they're already connected???
+                conn = net_connect(ip_str, candidate_peers[i].port, 0);
+            }
+
+            if (conn != NULL)
+            {
+                n->peers[n->peers_connected] = conn;
+                n->peers_connected += 1;
+                printf("%i: Found %i peers!\n", n->address.a, n->peers_connected);
+            }
         }
     }
 
-    while (n.peers_connected < 5)
-    {
-        // try accepting a connection
-        Socket* conn = net_accept(n.listening, NULL, NULL);
-        n.peers[n.peers_connected] = conn;
-        n.peers_connected += 1;
-    }
-
-    // now we have a node with at least 5 peers
-    printf("Found 5 peers!\n");
-
-    return NULL;
+    return 0;
 }
 
 void node_update(Node* node)
@@ -348,7 +388,6 @@ void node_update(Node* node)
     // 4. 
 
     // if it's local or smth
-    net_user_bind(node->address.a);
 
     // this assumes we're already connected and stuff
     net_listen(6969);
@@ -372,15 +411,23 @@ int main()
     thrd_t dns_server_thread;
     thrd_create(&dns_server_thread, dns_server, NULL);
 
+    sleep(1);
+
+#define N_NODES 16
+    thrd_t n_threads[N_NODES];
+    Node* nodes = calloc(N_NODES, sizeof(Node));
+
+    for (int i = 0; i < N_NODES; i++)
+    {
+        printf("Launching Node: %i\n", i);
+        nodes[i].address.a = i;
+        thrd_create(&n_threads[i], node_init, &nodes[i]);
+    }
+
+    for (int i = 0; i < N_NODES; i++)
+        thrd_join(n_threads[i], NULL);
+
     thrd_join(dns_server_thread, NULL);
-
-    node_init();
-
-    node_init();
-
-    node_init();
-
-    node_init();
 
     return 1;
 
@@ -421,7 +468,7 @@ int main()
 /* #define HOST "en.wikipedia.org" */
 
     // TODO: there is a random segfault here occasionally, could be bind or connect
-    sock = net_connect(HOST, 443);
+    sock = net_connect(HOST, 443, 1);
 
     // let's add a middle man
 

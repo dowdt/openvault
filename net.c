@@ -7,8 +7,10 @@
 #include <stdlib.h>
 
 #include <string.h>
-#include <sys/socket.h>
 #include <resolv.h>
+
+#include <fcntl.h>
+#include <sys/socket.h>
 
 #include "types.h"
 #include "util.c"
@@ -147,13 +149,49 @@ unsigned short net_rand_port()
     return port_last++;
 }
 
-Socket* net_connect(const char* ip_addr, unsigned short port)
+void net_set_blocking_fd(int fd, int should_block)
+{
+    int flags = fcntl(fd, F_GETFL, 0);
+
+    if (should_block) 
+        assert(fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) == 0, "oh no");
+    else
+    {
+        if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) != 0)
+        {
+            printf("%s\n", strerror(errno));
+            exit(-1);
+        }
+        /* assert(fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0, "oh no"); */
+    }
+}
+
+void net_set_blocking(Socket* sock, int should_block)
+{
+    if (sock == NULL)
+    {
+        return;
+    }
+
+    net_set_blocking_fd(sock->fd, should_block);
+}
+
+Socket* net_connect(const char* ip_addr, unsigned short port, bool blocking)
 {
     Socket* sock;
     int fd, status;
 
     // actually get socket
     fd = socket(AF_INET, SOCK_STREAM, 0);
+
+    if (fd == -1)
+    {
+        printf("this happened: %s\n", strerror(errno));
+        
+        exit(-1);     
+    }
+    assert(fd != -1, "if this happened wth is going on");
+    net_set_blocking_fd(fd, blocking);
 
     // TODO: make this non blocking with fnctl or something else
     struct addrinfo hints, *addr;
@@ -172,15 +210,16 @@ Socket* net_connect(const char* ip_addr, unsigned short port)
 
     {
         struct timeval tv;
-        tv.tv_sec = 3;
+        tv.tv_sec = 2;
         tv.tv_usec = 0;
-        setsockopt(sock->fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
     }
 
-    status = connect(sock->fd, (struct sockaddr*) addr->ai_addr, addr->ai_addrlen);
+    status = connect(fd, (struct sockaddr*) addr->ai_addr, addr->ai_addrlen);
 
     if (status != 0)
     {
+        close(fd);
         return NULL;
     }
 
@@ -224,29 +263,18 @@ Socket* net_accept(Socket* listener, struct sockaddr* ret_addr, socklen_t* ret_a
 
     if (fd == -1)
     {
-        printf("%s", strerror(errno));
+        /* printf("%s", strerror(errno)); */
         return NULL;
     }
-    else
-    {
-        Socket* conn = (Socket*) arena_calloc(&net_arena, sizeof(Socket));
-        conn->fd = fd;
-        return conn;
-    }
+
+    Socket* conn = (Socket*) arena_calloc(&net_arena, sizeof(Socket));
+    conn->fd = fd;
+    return conn;
 }
 
 void net_close(Socket* sock)
 {
-    /* if (sock->is_local) */
-    /* { */
-    /*     arena_free((Arena*) &sock->from_owner); */
-    /*     arena_free((Arena*) &sock->for_owner); */
-    /* } */
-    /* else */
-    {
-        close(sock->fd);
-    }
-
+    close(sock->fd);
     sock = NULL;
 }
 
@@ -258,23 +286,6 @@ int net_send(Socket* sock, void* buf, unsigned int size)
         return -1;
     }
 
-    /* if (sock->is_local) */
-    /* { */
-    /*     Arena* dest; */
-    /*     if (user_current == sock->owner_id) */
-    /*     { */
-    /*         dest = (Arena*) &sock->from_owner; */
-    /*     } */
-    /*     else */
-    /*     { */
-    /*         dest = (Arena*) &sock->for_owner; */
-    /*     } */
-
-    /*     // add to the ting */
-    /*     arena_append(dest, buf, size); */
-    /*     return size; */
-    /* } */
-    /* else */
     {
         // use the fds luke
         // printf("sent!\n");
@@ -290,90 +301,13 @@ int net_recv(Socket* sock, void* buf, unsigned int size)
         return -1;
     }
 
-    /* if (sock->is_local) */
-    /* { */
-    /*     Buffer* dest; */
-    /*     if (user_current == sock->owner_id) */
-    /*     { */
-    /*         dest = &sock->for_owner; */
-    /*     } */
-    /*     else */
-    /*     { */
-    /*         dest = &sock->from_owner; */
-    /*     } */
+    int res;
+    // XXX: this blocks even when connection should close
+    res = recv(sock->fd, buf, size, 0);
+    // printf("+--------------------->res:%i\n", res);
 
-    /*     int number_of_bytes_to_be_read = mini(dest->arena.allocated - dest->bytes_read, size); */
-    /*     dest->bytes_read += number_of_bytes_to_be_read; */
-    /*     memcpy(buf, dest->arena.data, number_of_bytes_to_be_read); */
-    /*     return number_of_bytes_to_be_read; */
-    /* } */
-    /* else */
-    {
-        int res;
-        // XXX: this blocks even when connection should close
-        res = recv(sock->fd, buf, size, 0);
-        // printf("+--------------------->res:%i\n", res);
 
-        assert(((int*)buf)[0] != 0, "shitshittshit");
-
-        return res;
-    }
+    return res;
 }
 
-// a generic TCP api and an api for nodes to connect and stuff
-// should i use UDP or TCP?
-// UDP is obvs more appropriate but for demo TCP makes sense, plus https connections easiest with tcp
-// 
-
-/* int main() */
-void net_test()
-{
-    /* net_init(); */
-
-    /* Socket* s = net_listen(6969); */
-
-    /* Socket* s2 = net_connect("0.1.1.2", 6969); */
-
-    /* // hurray! */
-    /* /1* assert(s->is_local, "otherwise none of this makes sense"); *1/ */
-    /* assert(s == s2, "otherwise none of this makes sense"); */
-
-    /* net_send(s2, "hello", 5); */
-
-    /* /1* printf("owner %i\n", s->owner_id); *1/ */
-    /* static char buf[8]; */
-    /* net_recv(s, buf, 8); */
-    /* printf("Received: %s\n", buf); */
-
-    /* // connect to HTTP server */
-    /* s = net_connect("lukesmith.xyz", 80); */
-    /* /1* s = net_connect("205.185.115.79", 80); *1/ */
-    /* net_send(s, "GET / HTTP/1.1\r\nHost: lukesmith.xyz\r\n\r\n", 45); */
-    /* { */
-    /*     static char buf[1024]; */
-    /*     // it is blocking!! sad! */
-    /*     net_recv(s, buf, 1023); */
-    /*     printf("HTTP response is: %s\n", buf); */
-    /* } */
-
-    /* // send tls get requests? */
-
-    /* // verifying system */
-    /* //  - check tls cert */
-    /* //  - check hashes */
-    /* //  - make a whole heckin' blockchain */
-    /* //    - handle transactions */
-    /* //    - handle planning */
-    /* //    - handle mining */
-    /* //    - handle validating */
-    /* //    - add tls checker */
-    /* //  - verify the nodes? */
-    /* //  - contest */
-    /* //    - make the graphics to show what's going on in network */
-    /* //  - docs */
-    /* //    - explain how it all works... */
-    /* //    - make a "whitepaper" lmao */
-    
-    /* net_uninit(); */
-}
 #endif

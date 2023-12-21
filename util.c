@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#undef assert
+
 void _assert(int cond, const char* msg, const char* file, unsigned int line)
 {
     if (cond == 0)
