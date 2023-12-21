@@ -3,13 +3,24 @@
 
 typedef struct
 {
+    int a;
     // in bitcoin they use base 58 hash of public key
 } Address;
 
 typedef struct
 {
-    
+    int b;
 } Signature;
+
+
+bool address_equals(Address a, Address b)
+{
+    if (a.a == b.a)
+        return 1;
+    else
+        return 0;
+}
+
 
 typedef struct
 {
@@ -100,7 +111,12 @@ typedef struct
             HashedBlock signed_plaintext_blocks[MAX_BLOCKS_PER_REQUEST];
         }* witness_results;
 
-        byte status;
+        enum {
+            NO_SERVER,
+            INVALID_CERT,
+            NO_PEERS,
+            SUCCESS
+        } status;
         // stored elsewhere in pc, bc too much mem otherwise
         byte* data;
         // make optional??
@@ -110,12 +126,12 @@ typedef struct
     // requests missing
         // 95 / 5 split between verifiers and person mining this block
         // there is a minimum spend to be in list, oldest requests are dropped
-    unsigned int requests_unfulfilled_count;
-    struct RequestUnfulfilled
+    unsigned int requests_pending_count;
+    struct RequestPending
     {
         // should store a random value that expands to correct ordering based on available verifiers from last block
         // random value that encodes which nodes to chose and stuff, random value is nonce XOR with request #
-        int seed;
+        int nonce;
 
         // request
         char host[MAX_HOST_LENGTH];
@@ -126,7 +142,7 @@ typedef struct
         unsigned int value;
 
         Signature s;
-    }* requests_unfulfilled;
+    }* requests_pending;
     
     unsigned int nonce;
     unsigned long timestamp_unix;

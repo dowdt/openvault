@@ -1,2 +1,2 @@
-tcc node.c -g -O0 -ltomcrypt -ltommath -DLTM_DESC && ./a.out
+clang -Wall node.c -O0 -ltomcrypt -ltommath -DLTM_DESC && ./a.out
 # gcc /tmp/test.c -g -O0 -ltomcrypt -ltommath -DLTM_DESC && ./a.out

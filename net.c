@@ -1,6 +1,8 @@
 #ifndef NET_SOURCE_FILE
 #define NET_SOURCE_FILE
 
+#include <errno.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -42,6 +44,7 @@ typedef struct
     void* data;
     unsigned int allocated;
     unsigned int capacity;
+    mtx_t mutex;
 } Arena;
 
 typedef struct
@@ -54,10 +57,12 @@ void arena_init(Arena* arena, unsigned int capacity)
 {
     arena->data = malloc(capacity);
     arena->capacity = capacity;
+    mtx_init(&arena->mutex, 0);
 }
 
 void* arena_alloc(Arena* arena, unsigned int size)
 {
+    mtx_lock(&arena->mutex);
     if (arena->capacity == 0)
         arena->data = NULL;
 
@@ -77,112 +82,53 @@ void* arena_alloc(Arena* arena, unsigned int size)
 
     void* res = arena->data + arena->allocated;
     arena->allocated += size;
+    mtx_unlock(&arena->mutex);
 
     return res;
 }
 
+void* arena_calloc(Arena* arena, unsigned int size)
+{
+    void* ptr = arena_alloc(arena, size);
+    memset(ptr, 0, size);
+    return ptr;
+}
+
 void arena_append(Arena* arena, void* buf, unsigned int size)
 {
+    mtx_lock(&arena->mutex);
     void* addr = arena_alloc(arena, size);
     memcpy(addr, buf, size);
+    mtx_unlock(&arena->mutex);
 }
 
 void arena_clear(Arena* arena)
 {
+    mtx_lock(&arena->mutex);
     arena->allocated = 0;
+    mtx_unlock(&arena->mutex);
 }
     
 void arena_free(Arena* arena)
 {
+    mtx_lock(&arena->mutex);
     arena->capacity = 0;
     arena->allocated = 0;
 
     free(arena->data);
     arena->data = NULL;
+    mtx_unlock(&arena->mutex);
+    mtx_destroy(&arena->mutex);
 }
-
-#define LOCAL_SIM
-
-/* typedef struct Socket */
-/* { */
-/*     int fd; */
-/* #ifdef LOCAL_SIM */
-/*     bool is_local; */
-/*     bool is_listening; */
-/*     unsigned int owner_id; */
-/*     Buffer from_owner; */
-/*     Buffer for_owner; */
-
-/*     struct Socket* prev; */
-/*     struct Socket* next; */
-/* #endif */
-/* } Socket; */
 
 typedef struct Socket
 {
     int fd;
-#ifdef LOCAL_SIM
-    bool is_local;
-    bool is_listening;
-    unsigned short listening_port;
-    unsigned int owner_id;
-    Buffer from_owner;
-    Buffer for_owner;
-
-    struct Socket* prev;
-    struct Socket* next;
-#endif
 } Socket;
 
 
 Arena net_arena;
 Socket* s_last_added = NULL;
-#ifdef LOCAL_SIM
-unsigned int user_current = 0;
-unsigned int user_count = 0;
-typedef struct
-{
-    char* ip_addr;
-} User;
-
-User users[1024];
-#endif
-
-#ifdef LOCAL_SIM
-
-
-int net_user_new(char* ip_addr)
-{
-    assert(user_count < 1024, "Exceeded maximum number of users");
-    users[user_count].ip_addr = ip_addr;
-    user_current = user_count;
-    user_count++;
-    return user_count - 1;
-}
-
-void net_user_bind(unsigned int i)
-{
-    user_current = i;
-}
-
-int net_user_from_ip(char* ip_addr)
-{
-    // find user from ip and get socket
-    for (int i = 0; i < user_count; i++)
-    {
-        if (strncmp(users[i].ip_addr, ip_addr, strlen(ip_addr)) == 0)
-        {
-            // found match!
-            return i;
-        }
-    }
-
-    assert(0, "this should never be reached");
-
-    return -1;
-}
-#endif
-
 void net_init()
 {
     arena_init(&net_arena, 1024);
@@ -193,133 +139,110 @@ void net_uninit()
     arena_free(&net_arena);
 }
 
+
+static atomic_ushort port_last = 29170;
+unsigned short net_rand_port()
+{
+    assert(port_last < 29998, "theoretically outside of assigned range");
+    return port_last++;
+}
+
 Socket* net_connect(const char* ip_addr, unsigned short port)
 {
     Socket* sock;
+    int fd, status;
 
-    // internal ip addresses become local let's say
-    if (ip_addr[0] == '0')
+    // actually get socket
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+
+    // TODO: make this non blocking with fnctl or something else
+    struct addrinfo hints, *addr;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family		= AF_INET;
+    hints.ai_socktype	= SOCK_STREAM;
+
+    status = getaddrinfo(ip_addr, NULL, &hints, &addr);
+
+    if (status != 0 || addr == NULL)
     {
-        unsigned int user_who_owns_ip;
-
-        user_who_owns_ip = net_user_from_ip((char*) ip_addr);
-
-        sock = s_last_added;
-        while (sock->owner_id != user_who_owns_ip && sock->is_listening)
-        {
-            sock = sock->prev;
-            assert(sock != NULL, "someone tried connecting without there being a listener, this should work but ommitting for now");
-        }
-
-        sock->is_listening = 0;
+        return NULL;
     }
-    else
+
+    ((struct sockaddr_in*)addr->ai_addr)->sin_port = htons(port);
+
     {
-        sock = (Socket*) arena_alloc(&net_arena, sizeof(Socket));
-
-        // actually get socket
-        memset(sock, 0, sizeof(Socket));
-        sock->fd = socket(AF_INET, SOCK_STREAM, 0);
-
-        // TODO: make this non blocking with fnctl or something else
-
-        sock->is_local = 0;
-
-        struct addrinfo hints, *addr;
-        memset(&hints, 0, sizeof(hints));
-        hints.ai_family		= AF_INET;
-        hints.ai_socktype	= SOCK_STREAM;
-
-        int status = getaddrinfo(ip_addr, NULL, &hints, &addr);
-        assert(status == 0, "failed to getaddrinfo");
-        assert(addr != NULL, "couldn't find address");
-
-        /* for (struct addrinfo* p = res; p != NULL; p = res->ai_next) */
-        /* { */
-            
-        /* } */
-
-        /* struct hostent* he; */
-        /* struct in_addr** addr_list; */
-        /* he = gethostbyname((char*) ip_addr); */
-        /* if (he == NULL) */
-        /* { */
-        /*     res_init(); */
-        /*     he = gethostbyname((char*) ip_addr); */
-        /* } */
-
-        /* printf("%s\n", ip_addr); */
-        /* assert(addr_list != NULL, "Invalid hostname!"); */
-        /* ip_addr = he->h_addr_list[0]; */
-
-        /* addr_list = (struct in_addr **) he->h_addr_list; */
-
-        /* struct sockaddr_in addr; */
-        /* addr.sin_addr.s_addr = inet_addr(inet_ntoa(*addr_list[0])); */
-        /* addr.sin_family = AF_INET; */
-        /* addr.sin_port = htons(port); */
-
-        ((struct sockaddr_in*)addr->ai_addr)->sin_port = htons(port);
-
-        // LINUX
-#ifdef __unix__
         struct timeval tv;
         tv.tv_sec = 3;
         tv.tv_usec = 0;
         setsockopt(sock->fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
-#else
-        // WINDOWS
-        DWORD timeout = timeout_in_seconds * 1000;
-        setsockopt(sock->fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof timeout);
-#endif
-
-        /* char portbuf[6]; */
-        /* sprintf(portbuf, "%i", port); */
-
-        /* assert(getaddrinfo(ip_addr, "http", &hints, &res) != 0, "couldn't connect failed getaddrinfo"); */
-
-        assert(connect(sock->fd, (struct sockaddr*) addr->ai_addr, addr->ai_addrlen) == 0, "failed to connect");
-
-        // should be connected now!
     }
 
+    status = connect(sock->fd, (struct sockaddr*) addr->ai_addr, addr->ai_addrlen);
+
+    if (status != 0)
+    {
+        return NULL;
+    }
+
+    sock = (Socket*) arena_calloc(&net_arena, sizeof(Socket));
+    sock->fd = fd;
     return sock;
 }
 
 // what to do if someone connects to us?
 Socket* net_listen(unsigned short port)
 {
-    Socket sock = { 0 };
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
 
-    // check if it's local?
-    sock.owner_id = user_current;
-    sock.fd = 0;
-    sock.is_local = 1;
-    sock.is_listening = 1;
-    sock.listening_port = port;
+    int opt = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+	setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
+	/* setsockopt(fd, SOL_SOCKET, SO_SIGNOPIPE, &opt, sizeof(opt)); */
 
-    Socket* new_sock = (Socket*) arena_alloc(&net_arena, sizeof(Socket));
-    memset(new_sock, 0, sizeof(Socket));
-    *new_sock = sock;
+    struct sockaddr_in address;
+	bzero(&address, sizeof(address));
+	address.sin_family = AF_INET;
+	address.sin_addr.s_addr = INADDR_ANY;
+	address.sin_port = htons(port);
 
-    if (s_last_added != NULL)
-        s_last_added->next = new_sock;
+    assert(bind(fd, (struct sockaddr*) &address, sizeof(address)) == 0, "couldn't bind to port probably taken");
+    printf("%s\n", strerror(errno));
+    // TODO: check if there's a better number
+    assert(listen(fd, 0) == 0, "couldn't listen port is probably taken");
+    
+    printf("%s\n", strerror(errno));
 
-    new_sock->prev = s_last_added;
-    s_last_added = new_sock;
+    Socket* sock = (Socket*) arena_calloc(&net_arena, sizeof(Socket));
+    sock->fd = fd;
 
+    return sock;
+}
 
-    return new_sock;
+Socket* net_accept(Socket* listener, struct sockaddr* ret_addr, socklen_t* ret_addr_len)
+{
+    int fd = accept(listener->fd, ret_addr, ret_addr_len);
+
+    if (fd == -1)
+    {
+        printf("%s", strerror(errno));
+        return NULL;
+    }
+    else
+    {
+        Socket* conn = (Socket*) arena_calloc(&net_arena, sizeof(Socket));
+        conn->fd = fd;
+        return conn;
+    }
 }
 
 void net_close(Socket* sock)
 {
-    if (sock->is_local)
-    {
-        arena_free((Arena*) &sock->from_owner);
-        arena_free((Arena*) &sock->for_owner);
-    }
-    else
+    /* if (sock->is_local) */
+    /* { */
+    /*     arena_free((Arena*) &sock->from_owner); */
+    /*     arena_free((Arena*) &sock->for_owner); */
+    /* } */
+    /* else */
     {
         close(sock->fd);
     }
@@ -335,23 +258,23 @@ int net_send(Socket* sock, void* buf, unsigned int size)
         return -1;
     }
 
-    if (sock->is_local)
-    {
-        Arena* dest;
-        if (user_current == sock->owner_id)
-        {
-            dest = (Arena*) &sock->from_owner;
-        }
-        else
-        {
-            dest = (Arena*) &sock->for_owner;
-        }
+    /* if (sock->is_local) */
+    /* { */
+    /*     Arena* dest; */
+    /*     if (user_current == sock->owner_id) */
+    /*     { */
+    /*         dest = (Arena*) &sock->from_owner; */
+    /*     } */
+    /*     else */
+    /*     { */
+    /*         dest = (Arena*) &sock->for_owner; */
+    /*     } */
 
-        // add to the ting
-        arena_append(dest, buf, size);
-        return size;
-    }
-    else
+    /*     // add to the ting */
+    /*     arena_append(dest, buf, size); */
+    /*     return size; */
+    /* } */
+    /* else */
     {
         // use the fds luke
         // printf("sent!\n");
@@ -367,24 +290,24 @@ int net_recv(Socket* sock, void* buf, unsigned int size)
         return -1;
     }
 
-    if (sock->is_local)
-    {
-        Buffer* dest;
-        if (user_current == sock->owner_id)
-        {
-            dest = &sock->for_owner;
-        }
-        else
-        {
-            dest = &sock->from_owner;
-        }
+    /* if (sock->is_local) */
+    /* { */
+    /*     Buffer* dest; */
+    /*     if (user_current == sock->owner_id) */
+    /*     { */
+    /*         dest = &sock->for_owner; */
+    /*     } */
+    /*     else */
+    /*     { */
+    /*         dest = &sock->from_owner; */
+    /*     } */
 
-        int number_of_bytes_to_be_read = mini(dest->arena.allocated - dest->bytes_read, size);
-        dest->bytes_read += number_of_bytes_to_be_read;
-        memcpy(buf, dest->arena.data, number_of_bytes_to_be_read);
-        return number_of_bytes_to_be_read;
-    }
-    else
+    /*     int number_of_bytes_to_be_read = mini(dest->arena.allocated - dest->bytes_read, size); */
+    /*     dest->bytes_read += number_of_bytes_to_be_read; */
+    /*     memcpy(buf, dest->arena.data, number_of_bytes_to_be_read); */
+    /*     return number_of_bytes_to_be_read; */
+    /* } */
+    /* else */
     {
         int res;
         // XXX: this blocks even when connection should close
@@ -405,56 +328,52 @@ int net_recv(Socket* sock, void* buf, unsigned int size)
 /* int main() */
 void net_test()
 {
-    net_init();
+    /* net_init(); */
 
-    int id = net_user_new("0.1.1.2");
-    Socket* s = net_listen(6969);
+    /* Socket* s = net_listen(6969); */
 
-    id = net_user_new("0.1.1.3");
-    Socket* s2 = net_connect("0.1.1.2", 6969);
+    /* Socket* s2 = net_connect("0.1.1.2", 6969); */
 
-    // hurray!
-    assert(s->is_local, "otherwise none of this makes sense");
-    assert(s == s2, "otherwise none of this makes sense");
+    /* // hurray! */
+    /* /1* assert(s->is_local, "otherwise none of this makes sense"); *1/ */
+    /* assert(s == s2, "otherwise none of this makes sense"); */
 
-    net_user_bind(1);
-    net_send(s2, "hello", 5);
+    /* net_send(s2, "hello", 5); */
 
-    net_user_bind(0);
-    printf("owner %i\n", s->owner_id);
-    static char buf[8];
-    net_recv(s, buf, 8);
-    printf("Received: %s\n", buf);
+    /* /1* printf("owner %i\n", s->owner_id); *1/ */
+    /* static char buf[8]; */
+    /* net_recv(s, buf, 8); */
+    /* printf("Received: %s\n", buf); */
 
-    // connect to HTTP server
-    s = net_connect("lukesmith.xyz", 80);
-    /* s = net_connect("205.185.115.79", 80); */
-    net_send(s, "GET / HTTP/1.1\r\nHost: lukesmith.xyz\r\n\r\n", 45);
-    {
-        static char buf[1024];
-        // it is blocking!! sad!
-        net_recv(s, buf, 1023);
-        printf("HTTP response is: %s\n", buf);
-    }
+    /* // connect to HTTP server */
+    /* s = net_connect("lukesmith.xyz", 80); */
+    /* /1* s = net_connect("205.185.115.79", 80); *1/ */
+    /* net_send(s, "GET / HTTP/1.1\r\nHost: lukesmith.xyz\r\n\r\n", 45); */
+    /* { */
+    /*     static char buf[1024]; */
+    /*     // it is blocking!! sad! */
+    /*     net_recv(s, buf, 1023); */
+    /*     printf("HTTP response is: %s\n", buf); */
+    /* } */
 
-    // send tls get requests?
+    /* // send tls get requests? */
 
-    // verifying system
-    //  - check tls cert
-    //  - check hashes
-    //  - make a whole heckin' blockchain
-    //    - handle transactions
-    //    - handle planning
-    //    - handle mining
-    //    - handle validating
-    //    - add tls checker
-    //  - verify the nodes?
-    //  - contest
-    //    - make the graphics to show what's going on in network
-    //  - docs
-    //    - explain how it all works...
-    //    - make a "whitepaper" lmao
+    /* // verifying system */
+    /* //  - check tls cert */
+    /* //  - check hashes */
+    /* //  - make a whole heckin' blockchain */
+    /* //    - handle transactions */
+    /* //    - handle planning */
+    /* //    - handle mining */
+    /* //    - handle validating */
+    /* //    - add tls checker */
+    /* //  - verify the nodes? */
+    /* //  - contest */
+    /* //    - make the graphics to show what's going on in network */
+    /* //  - docs */
+    /* //    - explain how it all works... */
+    /* //    - make a "whitepaper" lmao */
     
-    net_uninit();
+    /* net_uninit(); */
 }
 #endif

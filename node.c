@@ -3,7 +3,10 @@
 #include "block.c"
 #include "tlse/tlse.h"
 #include <dirent.h>
+#include <netinet/in.h>
 #include <stdio.h>
+#include <string.h>
+#include <threads.h>
 
 #define WITH_TLS_13
 /* #define DEBUG */
@@ -36,11 +39,11 @@ typedef struct
     Address address; // you know to sign and stuff
 } SnooperNode;
 
-void edge_node()
+typedef struct
 {
-    // ??
-}
-
+    unsigned int ip;
+    unsigned short port;
+} Peer;
 
 // hecking load
 
@@ -121,17 +124,266 @@ int verify_certificate(struct TLSContext *context, struct TLSCertificate **certi
 }
 
 
+long simple_hash(long* val)
+{
+    *val *= (2654435761);
+    return *val;
+}
 
-void node_update()
+
+#define DEFAULT_DNS_IP "127.0.0.1"
+#define DEFAULT_DNS_PORT 1313
+
+void ip_int_to_str(unsigned int ip, char* ret_str)
+{
+    byte* b = (byte*)&ip;
+    sprintf(ret_str, "%i.%i.%i.%i", b[0], b[1], b[2], b[3]);
+}
+
+int dns_server(void* args)
+{
+    // all this will do is accept connections and forward tracked nodes
+    Arena arena_peers;
+    static Peer peers[16];
+    int peer_current = 0;
+
+    Socket* server;
+    server = net_listen(1313);
+
+    int connections = 0;
+    struct sockaddr c_addr;
+    socklen_t c_addr_len;
+
+    for(;;)
+    {
+        Socket* conn = net_accept(server, &c_addr, &c_addr_len);
+
+        // send 5 peers and then disconnect
+        int index = rand() % 16;
+        net_send(conn, &peers[(index - 2) % 16], sizeof(Peer));
+        net_send(conn, &peers[(index - 1) % 16], sizeof(Peer));
+        net_send(conn, &peers[(  index  ) % 16], sizeof(Peer));
+        net_send(conn, &peers[(index + 1) % 16], sizeof(Peer));
+        net_send(conn, &peers[(index + 2) % 16], sizeof(Peer));
+
+        net_close(conn);
+
+
+        /* for (int i = 0; i < 16; i++) */
+        /* { */
+        /*     static char ip_str[12 + 4 + 1]; */
+        /*     memset(ip_str, 0, 17); */
+
+        /*     ip_int_to_str(peers[i].ip, ip_str); */
+        /*     printf("%i: port %hu ip %s\n", i, peers[i].port, ip_str); */
+        /* } */
+
+        peers[peer_current].ip = (((struct sockaddr_in*) &c_addr)->sin_addr.s_addr);
+        peers[peer_current].port = (((struct sockaddr_in*) &c_addr)->sin_port);
+
+        connections ++;
+        peer_current ++;
+        peer_current %= 16;
+    }
+}
+
+typedef struct
+{
+    Address address;
+    // network connections
+    int peers_connected;
+    Socket* peers[5];
+    Socket* listening;
+} Node;
+
+Node* node_init()
+{
+    Node n = { 0 };
+    // connect to peers
+
+    Socket* dns_sock = net_connect(DEFAULT_DNS_IP, DEFAULT_DNS_PORT);
+
+    // send it a listening socket on our end
+    unsigned short port = net_rand_port();
+    n.listening = net_listen(port);
+
+    // dns gets port
+    net_send(dns_sock, &port, sizeof(short));
+
+    Peer candidate_peers[5];
+    net_recv(dns_sock, &candidate_peers, sizeof(Peer) * 5);
+
+    // basically sit wait until we've got 5 confirmed connections
+    // try connecting to a candidate
+    for (int i = 0; i < 5; i++)
+    {
+        char ip_str[17];
+        Socket* conn;
+        memset(ip_str, 0, 17);
+
+        ip_int_to_str(candidate_peers[i].ip, ip_str);
+
+        conn = net_connect(ip_str, candidate_peers[i].port);
+
+        if (conn != NULL)
+        {
+            n.peers[n.peers_connected] = conn;
+            n.peers_connected += 1;
+        }
+    }
+
+    while (n.peers_connected < 5)
+    {
+        // try accepting a connection
+        Socket* conn = net_accept(n.listening, NULL, NULL);
+        n.peers[n.peers_connected] = conn;
+        n.peers_connected += 1;
+    }
+
+    // now we have a node with at least 5 peers
+    printf("Found 5 peers!\n");
+
+    return NULL;
+}
+
+void node_update(Node* node)
 {
     // 1. if new block undo all work
+    // 1.5 announce i've seen last block
     // 2. compute each bounty's procedure
-    // 3. send message to peer and wait for 
+
+    BlockchainShared b;
+#if 0
+    // determine peer
+    {
+        // check if i'm included in last block
+        int block_id = -1;
+        for (int i = 0; i < b.verifier_count; i++)
+        {
+            if (address_equals(b.verifiers[i].address, node->address))
+            {
+                // then we might be involved in this block
+                block_id = i;
+            }
+        }
+
+        if (block_id == -1)
+        {
+            // TODO: we are not involved, announce or smth
+        }
+        else
+        {
+
+            if (b.verifier_count < 6)
+            {
+                // not possible to verify the request
+            }
+            else
+            {
+                long seed = 0;
+                for (int i = 0; i < b.requests_pending_count; i++)
+                {
+                    int n[6];
+                    int s1, s2, s3;
+                    int w1, w2, w3;
+                    // quickly check if I am involved
+                    seed ^= i;
+                    seed ^= b.requests_pending[i].nonce;
+                    seed ^= b.nonce;
+                    n[0] = simple_hash(&seed) % b.verifier_count;
+                    n[1] = simple_hash(&seed) % b.verifier_count;
+                    n[2] = simple_hash(&seed) % b.verifier_count;
+                    n[3] = simple_hash(&seed) % b.verifier_count;
+                    n[4] = simple_hash(&seed) % b.verifier_count;
+                    n[5] = simple_hash(&seed) % b.verifier_count;
+
+                    // make sure that none are duplicated
+                    bool done = 0;
+                    while(!done)
+                    {
+                        done = 1;
+
+                        for (int j = 0; j < 6; j++)
+                        {
+                            for (int k = 0; k < 6; k++)
+                            {
+                                // also check if it's already being used
+                                if (n[j] == n[k] && k != j)
+                                {
+                                    n[k] += 1;
+                                    n[k] %= b.verifier_count;
+                                    done = 0;
+                                }
+                            }
+                        }
+                    }
+
+                    // if this is all true then we're good, unless one of the verifier ids is already used
+                    /* if () */
+                    {
+
+                    }
+                }
+            }
+        }
+    }
+#endif
+
+    struct RequestPending req = { 0 };
+    req.nonce = 1;
+    strcpy(req.host, "en.wikipedia.org");
+    strcpy(req.path, "/wiki/Richard");
+
+    b.requests_pending_count = 1;
+    b.requests_pending = &req;
+
+    b.verifier_count = 6;
+
+    for (int i = 0; i < 6; i++)
+    {
+        b.verifiers[i].address = (Address){ i };
+    }
+
+    // 3. send message to peer and start to listen for other peer to connect
+    // 4. 
+
+    // if it's local or smth
+    net_user_bind(node->address.a);
+
+    // this assumes we're already connected and stuff
+    net_listen(6969);
+
+    // must connect to port + ip combo
+    /* net_connect(); */
+
+    // started connection
+    {
+        // if snooper
+
+
+        // if witness
+    }
 }
 
 
 int main()
 {
+
+    thrd_t dns_server_thread;
+    thrd_create(&dns_server_thread, dns_server, NULL);
+
+    thrd_join(dns_server_thread, NULL);
+
+    node_init();
+
+    node_init();
+
+    node_init();
+
+    node_init();
+
+    return 1;
+
     // TLS request coming up
     tls_init();
 
@@ -148,7 +400,8 @@ int main()
     // send through whatever is left
 
     // connect + handshake
-    tls_validation_function validate_function;
+
+    // out going
     Socket* sock;
 
     if (load_root_certificates(context))
@@ -157,15 +410,15 @@ int main()
 
     printf("loaded certificates\n");
 
+/* #define HOST "lukesmith.xyz" */
 /* #define HOST "cedars.xyz" */
 /* #define HOST "www.wikipedia.org" */
 /* #define HOST "www.google.com" */
-/* #define HOST "www.archlinux.org" */
+/* #define HOST "archlinux.org" */
 /* #define HOST "suckless.org" */
-/* #define HOST "bestmotherfucking.website" */
 /* #define HOST "odin-lang.org" */
-/* #define HOST "www.slowernews.com" */
-#define HOST "en.wikipedia.org"
+#define HOST "www.slowernews.com"
+/* #define HOST "en.wikipedia.org" */
 
     // TODO: there is a random segfault here occasionally, could be bind or connect
     sock = net_connect(HOST, 443);
@@ -180,23 +433,20 @@ int main()
         int read_bytes;
         byte buf[4096];
         int sent_request = 0;
-        int n_loops = 0;
 
         static struct http_message msg;
         while ((read_bytes = net_recv(sock, buf, 4096)) > 0)
         {
-            // could be null validator
-            tls_consume_stream(context, buf, read_bytes, NULL);
-            /* send_pending(sock, context); // bug here */
+            tls_consume_stream(context, buf, read_bytes, sent_request ? tls_default_verify : NULL);
 
             if (tls_established(context))
             {
                 // if sent probs?
                 if (!sent_request)
                 {
-                    unsigned char request[] = "GET /wiki/Richard HTTP/1.1\r\nHost: " HOST "\r\n\r\n";
+                    unsigned char request[] = "GET / HTTP/1.1\r\nHost: " HOST "\r\n\r\n";
 
-                    int written = tls_write(context, request, strlen((char*)request));
+                    tls_write(context, request, strlen((char*)request));
                     send_pending(sock, context);
                     sent_request = 1;
                 }
@@ -211,41 +461,25 @@ int main()
                     int ret;
                     while ((ret = tls_read(context, data, DATA_SIZE)) > 0)
                     {
-                        static bool parsed_header = 0;
-                        static int last = 0;
-
                         // what happens if http reads but has nothing to write?
-                        last = msg.state.total;
-                        int h = http_read_from_buf(data, ret, &msg);
-                        n_loops += 1;
+                        // TODO: maybe I should use the return value from this function?
+                        http_read_from_buf(data, ret, &msg);
 
 
                         if (msg.length > 0)
                         {
-                            printf("%.*s\n", msg.length, msg.content);
+                            /* printf("%.*s\n", msg.length, msg.content); */
                             /* printf("Got message length: %i\n", msg.length); */
+
+                            // here is where I fill up a buffer to use later
+                            // but anyways this is just the full parse, only some nodes will do this
                         }
 
                         if (msg.header.length == msg.state.total && msg.state.left == 0)
                         {
-                            /* printf("Bye bye\n"); */
-                            // should close connection at this point
                             net_close(sock);
                         }
                     }
-                    // instead of manual parse, parse with libhttp
-
-                    // need to look for '\r\n\r\n'
-
-                    // is net_close the culprit?
-                    // looks like it
-                    // net_close();
-
-
-                    // let's only print the data in the content
-
-                    // content is actually just everything past the HTTP header
-                    // so it's "\r\n\r\n" -> "\r\n0\r\n\r\n"
                 }
             }
         }
