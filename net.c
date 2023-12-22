@@ -43,9 +43,9 @@
 
 typedef struct
 {
-    void* data;
-    unsigned int allocated;
-    unsigned int capacity;
+    volatile void* data;
+    volatile unsigned int allocated;
+    volatile unsigned int capacity;
     mtx_t mutex;
 } Arena;
 
@@ -76,17 +76,17 @@ void* arena_alloc(Arena* arena, unsigned int size)
             arena->capacity += arena->capacity / 2 + 1;
         }
 
-        void* original = arena->data;
-        arena->data = realloc(arena->data, arena->capacity);
+        volatile void* original = arena->data;
+        arena->data = realloc((void*) arena->data, arena->capacity);
 
         assert(arena->data != NULL, "Realloc failed, arena couldn't allocate");
     }
 
-    void* res = arena->data + arena->allocated;
+    volatile void* res = arena->data + arena->allocated;
     arena->allocated += size;
     mtx_unlock(&arena->mutex);
 
-    return res;
+    return (void*) res;
 }
 
 void* arena_calloc(Arena* arena, unsigned int size)
@@ -94,14 +94,6 @@ void* arena_calloc(Arena* arena, unsigned int size)
     void* ptr = arena_alloc(arena, size);
     memset(ptr, 0, size);
     return ptr;
-}
-
-void arena_append(Arena* arena, void* buf, unsigned int size)
-{
-    mtx_lock(&arena->mutex);
-    void* addr = arena_alloc(arena, size);
-    memcpy(addr, buf, size);
-    mtx_unlock(&arena->mutex);
 }
 
 void arena_clear(Arena* arena)
@@ -117,7 +109,7 @@ void arena_free(Arena* arena)
     arena->capacity = 0;
     arena->allocated = 0;
 
-    free(arena->data);
+    free((void*) arena->data);
     arena->data = NULL;
     mtx_unlock(&arena->mutex);
     mtx_destroy(&arena->mutex);
@@ -159,13 +151,21 @@ void net_set_blocking_fd(int fd, int should_block)
 {
     int flags = fcntl(fd, F_GETFL, 0);
 
-    if (should_block) 
-        assert(fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) == 0, "oh no");
+    if (should_block)
+    {
+        if (fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) != 0)
+        {
+            printf("fd %i, %s\n", fd, strerror(errno));
+            assert(0, "");
+            exit(-1);
+        }
+    }
     else
     {
         if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) != 0)
         {
             printf("%s\n", strerror(errno));
+            assert(0, "");
             exit(-1);
         }
         /* assert(fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0, "oh no"); */
@@ -182,19 +182,12 @@ void net_set_blocking(Socket* sock, int should_block)
     net_set_blocking_fd(sock->fd, should_block);
 }
 
-Socket* net_connect_ip_with_fd(int fd, unsigned int ip, char* ip_addr, unsigned short port)
+Socket* net_connect(const char* ip_addr, unsigned short port, bool blocking)
 {
     Socket* sock;
-    char buf[12 + 4 + 1];
-    int status;
+    int fd, status;
 
-    if (ip_addr == NULL)
-    {
-        memset(buf, 0, 17);
-
-        ip_int_to_str(ip, buf);
-        ip_addr = buf;
-    }
+    fd = socket(AF_INET, SOCK_STREAM, 0);
 
     // TODO: make this non blocking with fnctl or something else
     struct addrinfo hints, *addr;
@@ -215,42 +208,35 @@ Socket* net_connect_ip_with_fd(int fd, unsigned int ip, char* ip_addr, unsigned 
         struct timeval tv;
         tv.tv_sec = 2;
         tv.tv_usec = 0;
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+        /* setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv); */
     }
 
     status = connect(fd, (struct sockaddr*) addr->ai_addr, addr->ai_addrlen);
 
+    if (fd > 1000 || fd < 0)
+    {
+        int a  = 1;
+        printf("fd: %i, %s\n", fd, strerror(errno));
+
+        assert(0, "this ran here");
+    }
+
     if (status != 0)
     {
-        /* printf("??? %s\n", strerror(errno)); */
+        /* printf("fd %i\n", fd); */
+        /* assert(0, "this might close a connection or smh"); */
         close(fd);
         return NULL;
     }
 
-    sock = (Socket*) arena_calloc(&net_arena, sizeof(Socket));
+    sock = (Socket*) malloc(sizeof(Socket));
+    if (status < 0)
+    {
+        return NULL;
+    }
+
     sock->fd = fd;
     return sock;
-}
-
-Socket* net_connect(const char* ip_addr, unsigned short port, bool blocking)
-{
-    Socket* sock;
-    int fd, status;
-
-    // actually get socket
-    fd = socket(AF_INET, SOCK_STREAM, 0);
-
-    if (fd == -1)
-    {
-        printf("this happened: %s\n", strerror(errno));
-        
-        exit(-1);     
-    }
-    assert(fd != -1, "if this happened wth is going on");
-
-    net_set_blocking_fd(fd, blocking);
-
-    return net_connect_ip_with_fd(fd, 0, (char*) ip_addr, port);
 }
 
 int net_sock_fd(bool blocking)
@@ -297,7 +283,7 @@ Socket* net_listen(unsigned short port)
     
     /* printf("%s\n", strerror(errno)); */
 
-    Socket* sock = (Socket*) arena_calloc(&net_arena, sizeof(Socket));
+    Socket* sock = (Socket*) malloc(sizeof(Socket));
     sock->fd = fd;
 
     return sock;
@@ -309,17 +295,18 @@ Socket* net_accept(Socket* listener, struct sockaddr* ret_addr, socklen_t* ret_a
 
     if (fd == -1)
     {
-        /* printf("%s", strerror(errno)); */
         return NULL;
     }
 
-    Socket* conn = (Socket*) arena_calloc(&net_arena, sizeof(Socket));
+    Socket* conn = (Socket*) malloc(sizeof(Socket));// arena_calloc(&net_arena, sizeof(Socket));
     conn->fd = fd;
     return conn;
 }
 
 void net_close(Socket* sock)
 {
+    printf("closed this connection\n");
+    exit(-1);
     close(sock->fd);
     sock = NULL;
 }
@@ -352,6 +339,11 @@ int net_recv(Socket* sock, void* buf, unsigned int size)
     res = recv(sock->fd, buf, size, 0);
     // printf("+--------------------->res:%i\n", res);
 
+    if (res < 0)
+    {
+        printf("%s\n", strerror(errno));
+        /* assert(0, ""); */
+    }
 
     return res;
 }
