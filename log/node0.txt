@@ -1,0 +1,56 @@
+Public key (140 bytes):
+	308189281810E92CBD92D2DE47EF7982DC2C2914CC71A5FB758AA5E85FA8FC25B2104C7DF9A784216899929C2E8C1DE5F4BC77A79C45017D7F1C8991ED38B2273CEBBC9CA8132B99CEC3B6583FE5FA31A50C5C68E385B8225FBD016265C8C226FF3F5ECF12775E32FCAE6955ED65CEC9AAAA42C32D3F68A36E1314335185590EB23101
+<!DOCTYPE html>
+<html lang=en>
+<head>
+<title>🌲 cedars.xyz 🌲</title>
+<meta charset="utf-8"/>
+</head>
+
+<style>
+@-webkit-keyframes pulse
+{
+  0% {color: red;}
+ 25% {color: tomato;}
+ 50% {color: orange;}
+ 75% {color: yellow;}
+ 100% {color: moccasin;}
+}
+body { background: #111 ;
+
+	color: #eee ;
+	margin-bottom: 500px ;
+	max-width: 40em ;
+	margin: auto ;
+}
+
+h1,h2,h3,h4 { text-align: center ;}
+h1 { color: slategray ; font-size: 48pt;}
+h2 { color: tomato ;}
+h3 { color: goldenrod ;}
+h4 { color: lightblue ;}
+h4 { margin-left: 2em ; }
+a { color: lightskyblue ;}
+strong { color: goldenrod ;
+-webkit-animation: pulse 5s infinite alternate; }
+code { color: lime ; overflow-wrap:break-word; }
+blockquote { font-style: italic; }
+code { color: lime; overflow-wrap: break-word ; }
+</style>
+
+<body>
+
+	<
+header><h1>🌲 cedars.xyz 🌲</h1></header>
+
+	<main>
+
+	<blockquote>
+		<q>Towards the end of the world ... Almighty God and His holy Mother are to raise up saints who will surpass in holiness most other saints as much as the cedars of Lebanon tower above little shrubs.</q>
+		</br>
+		&mdash;Louis de Montfort
+	</blockquote>
+
+</body>
+</html>
+

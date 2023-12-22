@@ -19,19 +19,17 @@
 /* #define PATH "/" */
 /* #define PORT 443 */
 
-/* #define HOST "cedars.xyz" */
-/* #define PATH "/" */
-/* #define PORT 443 */
+#define HOST "cedars.xyz"
+#define PATH "/"
+#define PORT 443
 
 /* #define HOST "www.computerenhance.com" */
 /* #define PATH "/p/a-few-quick-notes" */
 /* #define PORT 443 */
 
-#define HOST "api.seeip.org"
-#define PATH "/"
-#define PORT 443
-
-
+/* #define HOST "api.seeip.org" */
+/* #define PATH "/" */
+/* #define PORT 443 */
 
 #define WITH_TLS_13
 /* #define DEBUG */
@@ -40,28 +38,35 @@
 
 #include "net.c"
 
-typedef struct {
+#define N_NODES 5
+
+typedef struct
+{
   unsigned int ip;
   unsigned short port;
 } Peer;
 
 // hecking load
 
-bool load_root_certificates(struct TLSContext *context) {
+bool load_root_certificates(struct TLSContext *context)
+{
 #ifdef __unix__
   DIR *dir;
   struct dirent *file;
 
   dir = opendir("/etc/ssl/certs");
-  if (dir == NULL) {
+  if (dir == NULL)
+  {
     printf("Failed to open /etc/ssl/certs, can't validate certs!\n");
     return 0;
   }
 
   while ((file = readdir(dir)) != NULL) {
-    if (strcmp(file->d_name, ".") != 0 && strcmp(file->d_name, "..") != 0) {
+    if (strcmp(file->d_name, ".") != 0 && strcmp(file->d_name, "..") != 0)
+    {
       size_t len = strlen(file->d_name);
-      if (len >= 4 && memcmp(file->d_name + len - 4, ".pem", 4) == 0) {
+      if (len >= 4 && memcmp(file->d_name + len - 4, ".pem", 4) == 0)
+      {
         static char full_path[1024] = "/etc/ssl/certs/";
         FILE *f;
 
@@ -87,32 +92,10 @@ bool load_root_certificates(struct TLSContext *context) {
 #endif
 }
 
-bool send_pending(Socket *sock, struct TLSContext *context) {
-  unsigned int out_buffer_len = 0;
-  const unsigned char *out_buffer =
-      tls_get_write_buffer(context, &out_buffer_len);
-  unsigned int out_buffer_index = 0;
-
-  int send_res = 0;
-  while ((out_buffer) && (out_buffer_len > 0)) {
-    printf("Will send %i bytes to fd %i\n", out_buffer_len, sock->fd);
-    int res =
-        net_send(sock, (char *)&out_buffer[out_buffer_index], out_buffer_len);
-    if (res <= 0) {
-      send_res = res;
-      break;
-    }
-
-    out_buffer_len -= res;
-    out_buffer_index += res;
-  }
-
-  tls_buffer_clear(context);
-  return send_res;
-}
 
 int verify_certificate(struct TLSContext *context,
-                       struct TLSCertificate **certificate_chain, int len) {
+                       struct TLSCertificate **certificate_chain, int len)
+{
   return no_error;
 }
 
@@ -176,12 +159,12 @@ typedef struct {
 
   int id;
   FILE *fout;
+  rsa_key key;
 } Node;
 
 int node_init(void *arg) { return 0; }
 
 static BlockchainShared block;
-#define N_NODES 3
 
 static Node nodes[N_NODES];
 static struct {
@@ -195,14 +178,37 @@ void node_register_on_chain(Node *node) {
 
 void https_request(Node* node, Socket *sock, char *host, char *path);
 
-int node_update(void *in_addr) {
-  // 1. if new block undo all work
-  // 1.5 announce i've seen last block
-  // 2. compute each bounty's procedure
+bool tls_send_pending(Socket *sock, struct TLSContext *context)
+{
+  unsigned int out_buffer_len = 0;
+  const unsigned char *out_buffer =
+      tls_get_write_buffer(context, &out_buffer_len);
+  unsigned int out_buffer_index = 0;
 
+  int send_res = 0;
+  while ((out_buffer) && (out_buffer_len > 0))
+  {
+    printf("Will send %i bytes to fd %i\n", out_buffer_len, sock->fd);
+    int res =
+        net_send(sock, (char *)&out_buffer[out_buffer_index], out_buffer_len);
+    if (res <= 0) {
+      send_res = res;
+      break;
+    }
+
+    out_buffer_len -= res;
+    out_buffer_index += res;
+  }
+
+  tls_buffer_clear(context);
+  return send_res;
+}
+
+int node_update(void *in_addr)
+{
   BlockchainShared b;
 #if 0
-  // determine peer
+  // Determining peer
   {
     // check if i'm included in last block
     int block_id = -1;
@@ -304,7 +310,7 @@ int node_update(void *in_addr) {
   int n[3] = {1, 2, 3};
   int order = 0; // first
 
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < N_NODES; i++) {
     if (node->id == i) {
       order = i;
       break;
@@ -315,7 +321,7 @@ int node_update(void *in_addr) {
   Socket *next = NULL;
   Socket *prev = NULL;
 
-  if (order == 1 || order == 2) {
+  if (order > 0) {
     Peer prev_peer = node->peers[node->id - 1].p;
 
     // wait for previous peer to connect
@@ -348,7 +354,7 @@ int node_update(void *in_addr) {
     printf("Node %i, connected to prev %i\n", node->id, prev->fd);
   }
 
-  if (order == 0 || order == 1) {
+  if (order < N_NODES - 1) {
     Peer next_peer = node->peers[node->id + 1].p;
 
     printf("Node %i, attempting connect ip %i, port %hu\n", node->id,
@@ -385,7 +391,7 @@ int node_update(void *in_addr) {
   else {
     // listen to requests from previous and forward to server
 
-    if (order == 2) {
+    if (order == N_NODES - 1) {
       printf("connected to endpoint\n");
       next = net_connect(req.host, PORT, 1);
     }
@@ -444,13 +450,13 @@ int node_update(void *in_addr) {
           if (r == prev)
           {
             printf("-> Node %i (%i bytes) ->\n", node->id, read_bytes);
-            fprintf(node->fout, "Sent:\n");
+            fprintf(node->fout, "Sent (%i bytes):\n", read_bytes);
 
           }
           else
           {
             printf("<- Node %i (%i bytes) <-\n", node->id, read_bytes);
-            fprintf(node->fout, "Received:\n");
+            fprintf(node->fout, "Received (%i bytes):\n", read_bytes);
           }
           hash_state md;
           sha512_init(&md);
@@ -459,11 +465,23 @@ int node_update(void *in_addr) {
           byte out[64];
           sha512_done(&md, out);
 
+          fprintf(node->fout, "\tHash:\n\t");
           for (int i = 0; i < 64; i++)
           {
             fprintf(node->fout, "%X", out[i]);
           }
 
+          fprintf(node->fout, "\n");
+
+          byte out_sign[1024];
+          unsigned long out_sign_len = 1024;
+          rsa_sign_hash(out, 64, out_sign, &out_sign_len, NULL, find_prng("sprng"), find_hash("sha512"), 8, &node->key);
+
+          fprintf(node->fout, "\tSignature:\n\t");
+          for (int i = 0; i < out_sign_len; i++)
+          {
+            fprintf(node->fout, "%X", out_sign[i]);
+          }
           fprintf(node->fout, "\n");
         }
       }
@@ -483,7 +501,8 @@ int node_update(void *in_addr) {
   return 0;
 }
 
-void https_request(Node* node, Socket *sock, char *host, char *path) {
+void https_request(Node* node, Socket *sock, char *host, char *path)
+{
   struct TLSContext *context;
   int read_bytes;
   byte buf[4096];
@@ -509,7 +528,7 @@ void https_request(Node* node, Socket *sock, char *host, char *path) {
   printf("sending connect\n");
   tls_client_connect(context);
   printf("server fd: %i\n", sock->fd);
-  send_pending(sock, context);
+  tls_send_pending(sock, context);
   printf("sent connect\n");
 
   printf("server fd: %i\n", sock->fd);
@@ -527,7 +546,7 @@ void https_request(Node* node, Socket *sock, char *host, char *path) {
     printf("consumed stream\n");
     if (!sent_request) {
       printf("sednign pending %i\n", sock->fd);
-      send_pending(sock, context);
+      tls_send_pending(sock, context);
       printf("sent pending\n");
     }
 
@@ -562,10 +581,12 @@ void https_request(Node* node, Socket *sock, char *host, char *path) {
         // TODO: parse request
 
         tls_write(context, (unsigned char *)request, strlen((char *)request));
-        send_pending(sock, context);
+        tls_send_pending(sock, context);
         sent_request = 1;
         printf("sent request\n");
-      } else {
+      }
+      else
+      {
         // NOTE: DATA_SIZE has to be smaller than http buffer, so that it fits
         // entirely within one call to http_read_from_buf
 #define DATA_SIZE 512
@@ -575,13 +596,15 @@ void https_request(Node* node, Socket *sock, char *host, char *path) {
         printf("checking\n");
 
         int ret;
-        while ((ret = tls_read(context, data, DATA_SIZE)) > 0) {
+        while ((ret = tls_read(context, data, DATA_SIZE)) > 0)
+        {
           // what happens if http reads but has nothing to write?
           // TODO: maybe I should use the return value from this function?
           printf("got decrypted message\n");
           http_read_from_buf(data, ret, &msg);
 
-          if (msg.length > 0) {
+          if (msg.length > 0)
+          {
             // write raw data ?
             // what to do here
             printf("%.*s\n", ret, data);
@@ -598,25 +621,46 @@ void https_request(Node* node, Socket *sock, char *host, char *path) {
   }
 }
 
-int main() {
-  /* thrd_t dns_server_thread; */
-  /* thrd_create(&dns_server_thread, dns_server, NULL); */
-
-  /* sleep(1); */
+int main()
+{
 #if 1
+
+  net_init();
+
+  ltc_mp = ltm_desc;
 
   register_prng(&sprng_desc);
   register_hash(&sha256_desc);
   thrd_t n_threads[N_NODES];
 
-  for (int i = 0; i < N_NODES; i++) {
+  for (int i = 0; i < N_NODES; i++)
+  {
     nodes[i].address.a = i;
     nodes[i].id = i;
 
     char fname[64];
-    sprintf(fname, "node%i.txt", i);
+    sprintf(fname, "log/node%i.txt", i);
     nodes[i].fout = fopen(fname, "w");
+    printf("%s\n", strerror(errno));
+
     setvbuf(nodes[i].fout, NULL, _IONBF, 0);
+    printf("%s\n", strerror(errno));
+
+    rsa_make_key(NULL, find_prng("sprng"), 1024 / 8, 65537, &nodes[i].key);
+
+    byte buf[1024];
+    unsigned long len = 1024;
+    rsa_export(buf, &len, PK_PUBLIC, &nodes[i].key);
+    fprintf(nodes[i].fout, "Public key (%i bytes):\n\t", (int) len);
+
+    printf("%lu\n", len);
+    for (int j = 0; j < len; j++)
+    {
+      fprintf(nodes[i].fout, "%X", buf[j]);
+    }
+    fprintf(nodes[i].fout, "\n");
+
+
     nodes[i].port = net_rand_port();
     printf("%i port is: %hu\n", i, nodes[i].port);
     node_init(&nodes[i]);
@@ -626,12 +670,14 @@ int main() {
   void *peers_buffer =
       calloc(N_NODES, (sizeof(Address) + sizeof(Peer)) * (N_NODES));
 
-  for (int i = 0; i < N_NODES; i++) {
+  for (int i = 0; i < N_NODES; i++)
+  {
     nodes[i].peers_connected = N_NODES;
     nodes[i].peers =
         peers_buffer + ((sizeof(Address) + sizeof(Peer)) * (N_NODES));
 
-    for (int j = 0; j < N_NODES; j++) {
+    for (int j = 0; j < N_NODES; j++)
+    {
       // add the nodes
       nodes[i].peers[j].a = nodes[j].address;
       memcpy(&nodes[i].peers[j].a, &nodes[j].address, sizeof(Address));
@@ -640,103 +686,26 @@ int main() {
     }
   }
 
-  for (int i = 0; i < N_NODES; i++) {
+  for (int i = 0; i < N_NODES; i++)
+  {
     printf("Launching Node: %i\n", i);
     thrd_create(&n_threads[i], node_update, &nodes[i]);
   }
 
-  for (int i = 0; i < N_NODES; i++) {
+  for (int i = 0; i < N_NODES; i++)
+  {
     thrd_join(n_threads[i], NULL);
     fclose(nodes[i].fout);
+    rsa_free(&nodes[i].key);
   }
-
-  /* thrd_join(dns_server_thread, NULL); */
 
   free(peers_buffer);
 
+
+  net_uninit();
   return 1;
+
 #else
-
-  {
-  }
-
-  // error but it compiles somehow
-  ltc_mp = ltm_desc;
-
-  // let's sign something
-  rsa_key key;
-  rsa_make_key(NULL, find_prng("sprng"), 1024 / 8, 65537, &key);
-
-  int err;
-  if ((err = rsa_make_key(NULL,               /* PRNG state */
-                          find_prng("sprng"), /* PRNG idx */
-                          1024 / 8,           /* 1024-bit key */
-                          65537,              /* we like e=65537 */
-                          &key)               /* where to store the key */
-       ) != CRYPT_OK) {
-    printf("rsa_make_key %s", error_to_string(err));
-    return EXIT_FAILURE;
-  }
-
-  printf("%i\n", key.type);
-  printf("pub %i\n", PK_PUBLIC);
-  printf("priv %i\n", PK_PRIVATE);
-
-  hash_state md;
-  sha256_init(&md);
-
-  char name[] = "bob boberson";
-
-  sha256_process(&md, (unsigned char *)name, strlen(name));
-
-  unsigned char hash_val[32];
-  sha256_done(&md, hash_val);
-
-  for (int i = 0; i < 32; i++) {
-    printf("%X", hash_val[i]);
-  }
-  putchar('\n');
-
-  byte buf[1024];
-  unsigned long buf_len = 1024;
-  err = rsa_sign_hash(hash_val, 32, buf, &buf_len, NULL, find_prng("sprng"),
-                      find_hash("sha256"), 8, &key);
-  if (err != CRYPT_OK) {
-    printf("sign hash %s", error_to_string(err));
-    return EXIT_FAILURE;
-  }
-
-  printf("buffer is %lu bytes\n", buf_len);
-
-  // export key in between
-
-  unsigned long keybuf_len = 1024;
-  byte *keybuf = calloc(keybuf_len, 1);
-  if ((err = rsa_export(keybuf, &keybuf_len, PK_PUBLIC, &key)) != CRYPT_OK) {
-    printf("export key %s", error_to_string(err));
-    return EXIT_FAILURE;
-  }
-
-  printf("keybuf length: %lu\n", keybuf_len);
-
-  rsa_key key_imported;
-  rsa_import(keybuf, keybuf_len, &key_imported);
-
-  int status;
-  rsa_verify_hash(buf, 128, hash_val, 32, find_hash("sha256"), 8, &status,
-                  &key_imported);
-  printf("%i status\n", status);
-
-  // so i can sign buffers now, try verifying
-
-  // why do I need key
-  // to sign messages...
-
-  putchar('\n');
-
-  /* return 1; */
-
-  printf("loaded certificates\n");
 
   /* #define HOST "lukesmith.xyz" */
 #define HOST "cedars.xyz"
@@ -754,10 +723,6 @@ int main() {
 
   byte context_buf[4096];
   struct TLSContext *c2;
-
-  // send get req and receive stuff
-
-  // https_request("lukesmith.xyz", "/");
 
   return 0;
 #endif

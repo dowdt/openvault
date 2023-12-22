@@ -229,7 +229,7 @@ Socket* net_connect(const char* ip_addr, unsigned short port, bool blocking)
         return NULL;
     }
 
-    sock = (Socket*) malloc(sizeof(Socket));
+    sock = (Socket*) arena_calloc(&net_arena, sizeof(Socket));
     if (status < 0)
     {
         return NULL;
@@ -283,7 +283,7 @@ Socket* net_listen(unsigned short port)
     
     /* printf("%s\n", strerror(errno)); */
 
-    Socket* sock = (Socket*) malloc(sizeof(Socket));
+    Socket* sock = (Socket*) arena_calloc(&net_arena, sizeof(Socket));
     sock->fd = fd;
 
     return sock;
@@ -298,7 +298,7 @@ Socket* net_accept(Socket* listener, struct sockaddr* ret_addr, socklen_t* ret_a
         return NULL;
     }
 
-    Socket* conn = (Socket*) malloc(sizeof(Socket));// arena_calloc(&net_arena, sizeof(Socket));
+    Socket* conn = (Socket*) arena_calloc(&net_arena, sizeof(Socket));// arena_calloc(&net_arena, sizeof(Socket));
     conn->fd = fd;
     return conn;
 }
