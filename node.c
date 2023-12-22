@@ -11,6 +11,28 @@
 #include <threads.h>
 #include <tomcrypt.h>
 
+/* #define HOST "localhost" */
+/* #define PATH "/" */
+/* #define PORT 9696 */
+
+/* #define HOST "cedars.xyz" */
+/* #define PATH "/" */
+/* #define PORT 443 */
+
+/* #define HOST "cedars.xyz" */
+/* #define PATH "/" */
+/* #define PORT 443 */
+
+/* #define HOST "www.computerenhance.com" */
+/* #define PATH "/p/a-few-quick-notes" */
+/* #define PORT 443 */
+
+#define HOST "api.seeip.org"
+#define PATH "/"
+#define PORT 443
+
+
+
 #define WITH_TLS_13
 /* #define DEBUG */
 #include "libhttp/http.c"
@@ -25,23 +47,19 @@ typedef struct {
 
 // hecking load
 
-bool load_root_certificates(struct TLSContext *context)
-{
+bool load_root_certificates(struct TLSContext *context) {
 #ifdef __unix__
   DIR *dir;
   struct dirent *file;
 
   dir = opendir("/etc/ssl/certs");
-  if (dir == NULL)
-  {
+  if (dir == NULL) {
     printf("Failed to open /etc/ssl/certs, can't validate certs!\n");
     return 0;
   }
 
-  while ((file = readdir(dir)) != NULL)
-  {
-    if (strcmp(file->d_name, ".") != 0 && strcmp(file->d_name, "..") != 0)
-    {
+  while ((file = readdir(dir)) != NULL) {
+    if (strcmp(file->d_name, ".") != 0 && strcmp(file->d_name, "..") != 0) {
       size_t len = strlen(file->d_name);
       if (len >= 4 && memcmp(file->d_name + len - 4, ".pem", 4) == 0) {
         static char full_path[1024] = "/etc/ssl/certs/";
@@ -71,14 +89,15 @@ bool load_root_certificates(struct TLSContext *context)
 
 bool send_pending(Socket *sock, struct TLSContext *context) {
   unsigned int out_buffer_len = 0;
-  const unsigned char *out_buffer = tls_get_write_buffer(context, &out_buffer_len);
+  const unsigned char *out_buffer =
+      tls_get_write_buffer(context, &out_buffer_len);
   unsigned int out_buffer_index = 0;
 
   int send_res = 0;
-  while ((out_buffer) && (out_buffer_len > 0)) 
-  {
+  while ((out_buffer) && (out_buffer_len > 0)) {
     printf("Will send %i bytes to fd %i\n", out_buffer_len, sock->fd);
-    int res = net_send(sock, (char *)&out_buffer[out_buffer_index], out_buffer_len);
+    int res =
+        net_send(sock, (char *)&out_buffer[out_buffer_index], out_buffer_len);
     if (res <= 0) {
       send_res = res;
       break;
@@ -156,10 +175,10 @@ typedef struct {
   unsigned short port;
 
   int id;
-  FILE* fout;
+  FILE *fout;
 } Node;
 
-int node_init(void *arg) { return 0;  }
+int node_init(void *arg) { return 0; }
 
 static BlockchainShared block;
 #define N_NODES 3
@@ -174,7 +193,7 @@ void node_register_on_chain(Node *node) {
   // should send message, instead stub to add to BlockchainShared
 }
 
-void https_request(Socket* sock, char* host, char* path);
+void https_request(Node* node, Socket *sock, char *host, char *path);
 
 int node_update(void *in_addr) {
   // 1. if new block undo all work
@@ -260,8 +279,8 @@ int node_update(void *in_addr) {
 
   struct RequestPending req = {0};
   req.nonce = 1;
-  strcpy(req.host, "cedars.xyz");
-  strcpy(req.path, "/");
+  strcpy(req.host, HOST);
+  strcpy(req.path, PATH);
 
   b.requests_pending_count = 1;
   b.requests_pending = &req;
@@ -306,14 +325,13 @@ int node_update(void *in_addr) {
     // connect to peer and make sure that they come from right address
     assert(node->listening != NULL, "node is null");
 
-    printf("Node %i at port %hu, starting accept loop want %hu\n", node->id, node->port, prev_peer.port);
+    printf("Node %i at port %hu, starting accept loop want %hu\n", node->id,
+           node->port, prev_peer.port);
     net_set_blocking(node->listening, 0);
-    for (;;)
-    {
+    for (;;) {
       prev = net_accept(node->listening, &addr, &addr_len);
 
-      if (prev != NULL)
-      {
+      if (prev != NULL) {
         /* struct sockaddr_in *addr_ip4 = (struct sockaddr_in *)&addr; */
         /* if (addr_ip4->sin_port == prev_peer.port && */
         /*     addr_ip4->sin_addr.s_addr == prev_peer.ip) { */
@@ -333,12 +351,11 @@ int node_update(void *in_addr) {
   if (order == 0 || order == 1) {
     Peer next_peer = node->peers[node->id + 1].p;
 
-    printf("Node %i, attempting connect ip %i, port %hu\n", node->id, next_peer.ip, next_peer.port);
-    for (;;)
-    {
+    printf("Node %i, attempting connect ip %i, port %hu\n", node->id,
+           next_peer.ip, next_peer.port);
+    for (;;) {
       next = net_connect_ip(next_peer.ip, next_peer.port, 0);
-      if (next != NULL)
-      {
+      if (next != NULL) {
         printf("Node %i, connected to next fd: %i\n", node->id, next->fd);
         break;
       }
@@ -348,37 +365,29 @@ int node_update(void *in_addr) {
   // we got to this point everything from now on will be great
   Arena session_arena;
   arena_init(&session_arena, 4096);
-  byte* buffer = arena_alloc(&session_arena, 4096);
+  byte *buffer = arena_alloc(&session_arena, 4096);
   int buffer_taken = 0;
   int buffer_allocated = 4096;
 
-
-
-
   printf("everybody said hello\n");
 
-  if (order == 0)
-  {
+  if (order == 0) {
     // connect to endpoint
     printf("Now ready to get to endpoint fd %i\n", next->fd);
-
-    sleep(2);
 
     char msg[] = "hello you ok";
     printf("sending message\n");
 
     // will do this basically
-    https_request(next, req.host, req.path);
+    https_request(node, next, req.host, req.path);
   }
 
-  else
-  {
+  else {
     // listen to requests from previous and forward to server
 
-    if (order == 2)
-    {
+    if (order == 2) {
       printf("connected to endpoint\n");
-      next = net_connect(req.host, 443, 1);
+      next = net_connect(req.host, PORT, 1);
     }
 
     int read_bytes;
@@ -388,8 +397,7 @@ int node_update(void *in_addr) {
     // unitil connection is up
     int is_reading_previous = 0;
 
-    if (order > 0)
-    {
+    if (order > 0) {
       is_reading_previous = 1;
     }
 
@@ -402,8 +410,7 @@ int node_update(void *in_addr) {
     timeout.tv_sec = 1;
     timeout.tv_usec = 0;
 
-    for (;;)
-    {
+    for (;;) {
       FD_ZERO(&read_set);
       FD_SET(next->fd, &read_set);
       FD_SET(prev->fd, &read_set);
@@ -414,24 +421,18 @@ int node_update(void *in_addr) {
 
       /* printf("got something %i\n", i); */
       int status = select(FD_SETSIZE, &read_set, NULL, NULL, &timeout);
-     
-      
-      for (int i = 0; i < FD_SETSIZE; i++)
-      {
-        if (FD_ISSET(i, &read_set))
-        {
-          printf("found one %i\n", status);
-          Socket* s = NULL;
-          Socket* r = NULL;
 
-          if (i == next->fd)
-          {
+      for (int i = 0; i < FD_SETSIZE; i++) {
+        if (FD_ISSET(i, &read_set)) {
+          printf("found one %i\n", status);
+          Socket *s = NULL;
+          Socket *r = NULL;
+
+          if (i == next->fd) {
             // reading from next sending to prev
             r = next;
             s = prev;
-          }
-          else
-          {
+          } else {
             r = prev;
             s = next;
           }
@@ -439,20 +440,38 @@ int node_update(void *in_addr) {
           read_bytes = net_recv(r, buf, 1024);
           net_send(s, buf, read_bytes);
 
+
           if (r == prev)
+          {
             printf("-> Node %i (%i bytes) ->\n", node->id, read_bytes);
+            fprintf(node->fout, "Sent:\n");
+
+          }
           else
+          {
             printf("<- Node %i (%i bytes) <-\n", node->id, read_bytes);
+            fprintf(node->fout, "Received:\n");
+          }
+          hash_state md;
+          sha512_init(&md);
+          sha512_process(&md, buf, read_bytes);
+
+          byte out[64];
+          sha512_done(&md, out);
+
+          for (int i = 0; i < 64; i++)
+          {
+            fprintf(node->fout, "%X", out[i]);
+          }
+
+          fprintf(node->fout, "\n");
         }
       }
     }
-     
-    if (read_bytes > 0)
-    {
+
+    if (read_bytes > 0) {
       buffer_taken += read_bytes;
-    }
-    else
-    {
+    } else {
       // fail
     }
   }
@@ -464,158 +483,155 @@ int node_update(void *in_addr) {
   return 0;
 }
 
+void https_request(Node* node, Socket *sock, char *host, char *path) {
+  struct TLSContext *context;
+  int read_bytes;
+  byte buf[4096];
+  int sent_request = 0;
+  Arena l_arena;
+  printf("server here: %i\n", sock->fd);
 
-void https_request(Socket* sock, char* host, char* path)
-{
-    struct TLSContext* context;
-    int read_bytes;
-    byte buf[4096];
-    int sent_request = 0;
-    Arena l_arena;
-    printf("server here: %i\n", sock->fd);
+  // tls setup
+  tls_init();
+  context = tls_create_context(0, TLS_V13);
+  tls_make_exportable(context, 1);
+  // load_root_certificates(context);
 
-    // tls setup
-    tls_init();
-    context = tls_create_context(0, TLS_V13);
-    tls_make_exportable(context, 1);
-    //load_root_certificates(context);
+  arena_init(&l_arena, 1024);
 
-    arena_init(&l_arena, 1024);
+  printf("connecting to: %s.\n", host);
 
-    printf("connecting to: %s.\n", host);
+  if (sock == NULL) {
+    printf("NULL SOket\n");
+    sock = net_connect(host, PORT, 1);
+  }
 
-    if (sock == NULL)
-    {
-      printf("NULL SOket\n");
-      sock = net_connect(host, 443, 1);
+  printf("sending connect\n");
+  tls_client_connect(context);
+  printf("server fd: %i\n", sock->fd);
+  send_pending(sock, context);
+  printf("sent connect\n");
+
+  printf("server fd: %i\n", sock->fd);
+
+  // to do the record and parse again I need to catalogue every read and every
+  // write, so I might as well just implement the darn thing normally
+
+  static struct http_message msg;
+  printf("reading bytes\n");
+  while ((read_bytes = net_recv(sock, buf, 4096)) > 0) {
+    printf("got data, fd: %i\n", sock->fd);
+
+    printf("consuming stream\n");
+    tls_consume_stream(context, buf, read_bytes, NULL);
+    printf("consumed stream\n");
+    if (!sent_request) {
+      printf("sednign pending %i\n", sock->fd);
+      send_pending(sock, context);
+      printf("sent pending\n");
     }
 
-    printf("sending connect\n");
-    tls_client_connect(context);
-    printf("server fd: %i\n", sock->fd);
-    send_pending(sock, context);
-    printf("sent connect\n");
+    if (tls_established(context)) {
+      printf("handshake done\n");
+      /* int size = tls_export_context(context, context_buf, 4096, 0); */
+      /* printf("context size %i\n", size); */
 
-    printf("server fd: %i\n", sock->fd);
+      if (!sent_request) {
+        char *request = arena_calloc(&l_arena, 4 + strlen(host) + 21 +
+                                                   strlen(path) + 4 + 1);
+        {
+          printf("host is: %s\n", host);
+          int off = 0;
 
-    // to do the record and parse again I need to catalogue every read and every write, so I might as well just implement the darn thing normally
+          char *s1 = "GET ";
+          memcpy(request + off, s1, strlen(s1));
+          off += strlen(s1);
 
-    static struct http_message msg;
-    printf("reading bytes\n");
-    while ((read_bytes = net_recv(sock, buf, 4096)) > 0) {
-      printf("got data, fd: %i\n", sock->fd);
+          strcpy(request + off, path);
+          off += strlen(path);
 
-      printf("consuming stream\n");
-      tls_consume_stream(context, buf, read_bytes, NULL);
-      printf("consumed stream\n");
-      if (!sent_request)
-      {
-        printf("sednign pending %i\n", sock->fd);
+          char *s2 = " HTTP/1.1\r\nHost: ";
+          strcpy(request + off, s2);
+          off += strlen(s2);
+          strcpy(request + off, host);
+          off += strlen(host);
+          strcpy(request + off, " \r\n\r\n");
+          printf("request: %s\n", request);
+        }
+
+        // TODO: parse request
+
+        tls_write(context, (unsigned char *)request, strlen((char *)request));
         send_pending(sock, context);
-        printf("sent pending\n");
-      }
-
-      if (tls_established(context))
-      {
-        printf("handshake done\n");
-        /* int size = tls_export_context(context, context_buf, 4096, 0); */
-        /* printf("context size %i\n", size); */
-
-        if (!sent_request)
-        {
-          char* request = arena_calloc(&l_arena, 4 + strlen(host) + 21 + strlen(path) + 4 + 1);
-          {
-            printf("host is: %s\n", host);
-            int off = 0;
-
-            char* s1 = "GET ";
-            memcpy(request + off, s1, strlen(s1));
-            off += strlen(s1);
-
-            strcpy(request + off, path);
-            off += strlen(path);
-
-            char* s2 = " HTTP/1.1\r\nHost: ";
-            strcpy(request + off, s2);
-            off += strlen(s2);
-            strcpy(request + off, host);
-            off += strlen(host);
-            strcpy(request + off, " \r\n\r\n");
-            printf("request: %s\n", request);
-          }
-
-          // TODO: parse request
-
-          tls_write(context, (unsigned char*)request, strlen((char *)request));
-          send_pending(sock, context);
-          sent_request = 1;
-          printf("sent request\n");
-        }
-        else 
-        {
-          // NOTE: DATA_SIZE has to be smaller than http buffer, so that it fits
-          // entirely within one call to http_read_from_buf
+        sent_request = 1;
+        printf("sent request\n");
+      } else {
+        // NOTE: DATA_SIZE has to be smaller than http buffer, so that it fits
+        // entirely within one call to http_read_from_buf
 #define DATA_SIZE 512
-          unsigned char data[DATA_SIZE];
+        unsigned char data[DATA_SIZE];
 
-          memset(data, 0, DATA_SIZE);
-          printf("checking\n");
+        memset(data, 0, DATA_SIZE);
+        printf("checking\n");
 
-          int ret;
-          while ((ret = tls_read(context, data, DATA_SIZE)) > 0)
-          {
-            // what happens if http reads but has nothing to write?
-            // TODO: maybe I should use the return value from this function?
-            printf("got decrypted message\n");
-            http_read_from_buf(data, ret, &msg);
+        int ret;
+        while ((ret = tls_read(context, data, DATA_SIZE)) > 0) {
+          // what happens if http reads but has nothing to write?
+          // TODO: maybe I should use the return value from this function?
+          printf("got decrypted message\n");
+          http_read_from_buf(data, ret, &msg);
 
-            if (msg.length > 0)
-            {
-              // write raw data ?
-              // what to do here
-              printf("%.*s\n", ret, data);
-            }
+          if (msg.length > 0) {
+            // write raw data ?
+            // what to do here
+            printf("%.*s\n", ret, data);
+            fprintf(node->fout, "%.*s\n", msg.length, msg.content);
+          }
 
-            if (msg.header.length == msg.state.total && msg.state.left == 0) 
-            {
-              net_close(sock);
-            }
+          if (msg.header.length == msg.state.total && msg.state.left == 0) {
+            net_close(sock);
           }
         }
+        printf("no plaintext to read, moving on\n");
       }
     }
   }
+}
 
-
-int main()
-{
+int main() {
   /* thrd_t dns_server_thread; */
   /* thrd_create(&dns_server_thread, dns_server, NULL); */
 
   /* sleep(1); */
 #if 1
 
+  register_prng(&sprng_desc);
+  register_hash(&sha256_desc);
   thrd_t n_threads[N_NODES];
 
-  for (int i = 0; i < N_NODES; i++)
-  {
+  for (int i = 0; i < N_NODES; i++) {
     nodes[i].address.a = i;
     nodes[i].id = i;
+
+    char fname[64];
+    sprintf(fname, "node%i.txt", i);
+    nodes[i].fout = fopen(fname, "w");
+    setvbuf(nodes[i].fout, NULL, _IONBF, 0);
     nodes[i].port = net_rand_port();
     printf("%i port is: %hu\n", i, nodes[i].port);
     node_init(&nodes[i]);
   }
 
   // simulating acquiring neighbours
-  void* peers_buffer = calloc(N_NODES, (sizeof(Address) + sizeof(Peer)) * (N_NODES - 1));
+  void *peers_buffer =
+      calloc(N_NODES, (sizeof(Address) + sizeof(Peer)) * (N_NODES));
 
-  for (int i = 0; i < N_NODES; i++)
-  {
-    nodes[i].peers_connected = N_NODES - 1;
-    nodes[i].peers = peers_buffer + ((sizeof(Address) + sizeof(Peer)) * (N_NODES - 1));
+  for (int i = 0; i < N_NODES; i++) {
+    nodes[i].peers_connected = N_NODES;
+    nodes[i].peers =
+        peers_buffer + ((sizeof(Address) + sizeof(Peer)) * (N_NODES));
 
-    for (int j = 0; j < N_NODES; j++)
-    {
+    for (int j = 0; j < N_NODES; j++) {
       // add the nodes
       nodes[i].peers[j].a = nodes[j].address;
       memcpy(&nodes[i].peers[j].a, &nodes[j].address, sizeof(Address));
@@ -624,14 +640,15 @@ int main()
     }
   }
 
-  for (int i = 0; i < N_NODES; i++)
-  {
+  for (int i = 0; i < N_NODES; i++) {
     printf("Launching Node: %i\n", i);
     thrd_create(&n_threads[i], node_update, &nodes[i]);
   }
 
-  for (int i = 0; i < N_NODES; i++)
+  for (int i = 0; i < N_NODES; i++) {
     thrd_join(n_threads[i], NULL);
+    fclose(nodes[i].fout);
+  }
 
   /* thrd_join(dns_server_thread, NULL); */
 
@@ -641,8 +658,6 @@ int main()
 #else
 
   {
-    register_prng(&sprng_desc);
-    register_hash(&sha256_desc);
   }
 
   // error but it compiles somehow
@@ -653,12 +668,12 @@ int main()
   rsa_make_key(NULL, find_prng("sprng"), 1024 / 8, 65537, &key);
 
   int err;
-  if ((err = rsa_make_key(NULL, /* PRNG state */
-          find_prng("sprng"), /* PRNG idx */
-          1024/8, /* 1024-bit key */
-          65537, /* we like e=65537 */
-          &key) /* where to store the key */
-      ) != CRYPT_OK) {
+  if ((err = rsa_make_key(NULL,               /* PRNG state */
+                          find_prng("sprng"), /* PRNG idx */
+                          1024 / 8,           /* 1024-bit key */
+                          65537,              /* we like e=65537 */
+                          &key)               /* where to store the key */
+       ) != CRYPT_OK) {
     printf("rsa_make_key %s", error_to_string(err));
     return EXIT_FAILURE;
   }
@@ -677,18 +692,16 @@ int main()
   unsigned char hash_val[32];
   sha256_done(&md, hash_val);
 
-  for (int i = 0; i < 32; i++)
-  {
+  for (int i = 0; i < 32; i++) {
     printf("%X", hash_val[i]);
   }
   putchar('\n');
 
-
   byte buf[1024];
   unsigned long buf_len = 1024;
-  err = rsa_sign_hash(hash_val, 32, buf, &buf_len, NULL, find_prng("sprng"), find_hash("sha256"), 8, &key);
-  if (err != CRYPT_OK)
-  {
+  err = rsa_sign_hash(hash_val, 32, buf, &buf_len, NULL, find_prng("sprng"),
+                      find_hash("sha256"), 8, &key);
+  if (err != CRYPT_OK) {
     printf("sign hash %s", error_to_string(err));
     return EXIT_FAILURE;
   }
@@ -698,9 +711,8 @@ int main()
   // export key in between
 
   unsigned long keybuf_len = 1024;
-  byte* keybuf = calloc(keybuf_len, 1);
-  if ((err = rsa_export(keybuf, &keybuf_len, PK_PUBLIC, &key)) != CRYPT_OK)
-  {
+  byte *keybuf = calloc(keybuf_len, 1);
+  if ((err = rsa_export(keybuf, &keybuf_len, PK_PUBLIC, &key)) != CRYPT_OK) {
     printf("export key %s", error_to_string(err));
     return EXIT_FAILURE;
   }
@@ -711,7 +723,8 @@ int main()
   rsa_import(keybuf, keybuf_len, &key_imported);
 
   int status;
-  rsa_verify_hash(buf, 128, hash_val, 32, find_hash("sha256"), 8, &status, &key_imported);
+  rsa_verify_hash(buf, 128, hash_val, 32, find_hash("sha256"), 8, &status,
+                  &key_imported);
   printf("%i status\n", status);
 
   // so i can sign buffers now, try verifying
@@ -726,8 +739,8 @@ int main()
   printf("loaded certificates\n");
 
   /* #define HOST "lukesmith.xyz" */
-  #define HOST "cedars.xyz"
-/* #define HOST "www.wikipedia.org" */
+#define HOST "cedars.xyz"
+  /* #define HOST "www.wikipedia.org" */
   /* #define HOST "www.google.com" */
   /* #define HOST "archlinux.org" */
   /* #define HOST "suckless.org" */
@@ -739,16 +752,12 @@ int main()
   // connect
   // let's add a middle man
 
-
-
   byte context_buf[4096];
-  struct TLSContext* c2;
+  struct TLSContext *c2;
 
   // send get req and receive stuff
 
-
   // https_request("lukesmith.xyz", "/");
-
 
   return 0;
 #endif
