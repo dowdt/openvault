@@ -9,6 +9,7 @@
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <threads.h>
+#include <tomcrypt.h>
 
 #define WITH_TLS_13
 /* #define DEBUG */
@@ -99,8 +100,7 @@ long simple_hash(long *val) {
 #define DEFAULT_DNS_IP "127.0.0.1"
 #define DEFAULT_DNS_PORT 1313
 
-int dns_server(void *args)
-{
+int dns_server(void *args) {
   // all this will do is accept connections and forward tracked nodes
   Arena arena_peers;
   static Peer peers[16];
@@ -116,11 +116,11 @@ int dns_server(void *args)
   struct sockaddr c_addr;
   socklen_t c_addr_len;
 
-  for (;;)
-  {
+  for (;;) {
     /* printf("waiting to accept!\n"); */
     Socket *conn;
-    while ((conn = net_accept(server, &c_addr, &c_addr_len)) == NULL);
+    while ((conn = net_accept(server, &c_addr, &c_addr_len)) == NULL)
+      ;
 
     net_recv(conn, &peers[peer_current].port, sizeof(short));
 
@@ -143,8 +143,7 @@ typedef struct {
   Address address;
   // network connections
   int peers_connected;
-  struct
-  {
+  struct {
     Address a;
     Peer p;
   } *peers;
@@ -154,108 +153,101 @@ typedef struct {
   int id;
 } Node;
 
-int node_init(void *arg) {
-
-  return 0;
-}
-
+int node_init(void *arg) { return 0; }
 
 static BlockchainShared block;
 #define N_NODES 3
 
 static Node nodes[N_NODES];
-static struct
-{
-    Address a;
-    Peer p;
+static struct {
+  Address a;
+  Peer p;
 } peer_addresses[N_NODES];
 
-void node_register_on_chain(Node* node)
-{
-    // should send message, instead stub to add to BlockchainShared
+void node_register_on_chain(Node *node) {
+  // should send message, instead stub to add to BlockchainShared
 }
 
-int node_update(void *in_addr)
-{
+int node_update(void *in_addr) {
   // 1. if new block undo all work
   // 1.5 announce i've seen last block
   // 2. compute each bounty's procedure
 
   BlockchainShared b;
 #if 0
-    // determine peer
+  // determine peer
+  {
+    // check if i'm included in last block
+    int block_id = -1;
+    for (int i = 0; i < b.verifier_count; i++)
     {
-        // check if i'm included in last block
-        int block_id = -1;
-        for (int i = 0; i < b.verifier_count; i++)
-        {
-            if (address_equals(b.verifiers[i].address, node->address))
-            {
-                // then we might be involved in this block
-                block_id = i;
-            }
-        }
-
-        if (block_id == -1)
-        {
-            // TODO: we are not involved, announce or smth
-        }
-        else
-        {
-
-            if (b.verifier_count < 6)
-            {
-                // not possible to verify the request
-            }
-            else
-            {
-                long seed = 0;
-                for (int i = 0; i < b.requests_pending_count; i++)
-                {
-                    int n[6];
-                    int s1, s2, s3;
-                    int w1, w2, w3;
-                    // quickly check if I am involved
-                    seed ^= i;
-                    seed ^= b.requests_pending[i].nonce;
-                    seed ^= b.nonce;
-                    n[0] = simple_hash(&seed) % b.verifier_count;
-                    n[1] = simple_hash(&seed) % b.verifier_count;
-                    n[2] = simple_hash(&seed) % b.verifier_count;
-                    n[3] = simple_hash(&seed) % b.verifier_count;
-                    n[4] = simple_hash(&seed) % b.verifier_count;
-                    n[5] = simple_hash(&seed) % b.verifier_count;
-
-                    // make sure that none are duplicated
-                    bool done = 0;
-                    while(!done)
-                    {
-                        done = 1;
-
-                        for (int j = 0; j < 6; j++)
-                        {
-                            for (int k = 0; k < 6; k++)
-                            {
-                                // also check if it's already being used
-                                if (n[j] == n[k] && k != j)
-                                {
-                                    n[k] += 1;
-                                    n[k] %= b.verifier_count;
-                                    done = 0;
-                                }
-                            }
-                        }
-                    }
-
-                    // if this is all true then we're good, unless one of the verifier ids is already used
-                    /* if () */
-                    {
-
-                    }
-                }
-            }
-        }
+      if (address_equals(b.verifiers[i].address, node->address))
+      {
+        // then we might be involved in this block
+        block_id = i;
+      }
     }
+
+    if (block_id == -1)
+    {
+      // TODO: we are not involved, announce or smth
+    }
+    else
+    {
+
+      if (b.verifier_count < 6)
+      {
+        // not possible to verify the request
+      }
+      else
+      {
+        long seed = 0;
+        for (int i = 0; i < b.requests_pending_count; i++)
+        {
+          int n[6];
+          int s1, s2, s3;
+          int w1, w2, w3;
+          // quickly check if I am involved
+          seed ^= i;
+          seed ^= b.requests_pending[i].nonce;
+          seed ^= b.nonce;
+          n[0] = simple_hash(&seed) % b.verifier_count;
+          n[1] = simple_hash(&seed) % b.verifier_count;
+          n[2] = simple_hash(&seed) % b.verifier_count;
+          n[3] = simple_hash(&seed) % b.verifier_count;
+          n[4] = simple_hash(&seed) % b.verifier_count;
+          n[5] = simple_hash(&seed) % b.verifier_count;
+
+          // make sure that none are duplicated
+          bool done = 0;
+          while(!done)
+          {
+            done = 1;
+
+            for (int j = 0; j < 6; j++)
+            {
+              for (int k = 0; k < 6; k++)
+              {
+                // also check if it's already being used
+                if (n[j] == n[k] && k != j)
+                {
+                  n[k] += 1;
+                  n[k] %= b.verifier_count;
+                  done = 0;
+                }
+              }
+            }
+          }
+
+          // if this is all true then we're good, unless one of the verifier ids is already used
+          /* if () */
+          {
+
+          }
+        }
+      }
+    }
+  }
 #endif
 
   struct RequestPending req = {0};
@@ -263,14 +255,12 @@ int node_update(void *in_addr)
   strcpy(req.host, "en.wikipedia.org");
   strcpy(req.path, "/wiki/Richard");
 
-
   b.requests_pending_count = 1;
   b.requests_pending = &req;
 
   b.verifier_count = 6;
 
-  for (int i = 0; i < 6; i++)
-  {
+  for (int i = 0; i < 6; i++) {
     b.verifiers[i].address = (Address){i};
   }
 
@@ -283,31 +273,28 @@ int node_update(void *in_addr)
 
   // peers
 
-  Node* node = in_addr;
+  Node *node = in_addr;
   node->listening = net_listen(node->port);
 
   // 1 -> 2 -> 3 -> server
   // V    V    V
   // 4    5    6
 
-  int n[3] = { 1, 2, 3 };
+  int n[3] = {1, 2, 3};
   int order = 0; // first
 
-  for (int i = 0; i < 3; i++)
-  {
-      if (node->id == i)
-      {
-        order = i;
-        break;
-      }
+  for (int i = 0; i < 3; i++) {
+    if (node->id == i) {
+      order = i;
+      break;
+    }
   }
 
   // if order 1 or 2, connect to next, listen to previous
-  Socket* next = NULL;
-  Socket* prev = NULL;
+  Socket *next = NULL;
+  Socket *prev = NULL;
 
-  if (order == 1 || order == 2)
-  {
+  if (order == 1 || order == 2) {
     Peer prev_peer = node->peers[order - 1].p;
 
     // wait for previous peer to connect
@@ -315,26 +302,21 @@ int node_update(void *in_addr)
     socklen_t addr_len;
 
     // connect to peer and make sure that they come from right address
-    assert(node->listening != NULL);
+    assert(node->listening != NULL, "node is null");
 
     net_set_blocking(node->listening, 1);
 
     printf("Node %i, starting accept loop\n", node->id);
-    for (;;)
-    {
+    for (;;) {
       prev = net_accept(node->listening, &addr, &addr_len);
-      if (prev != NULL)
-      {
-        struct sockaddr_in* addr_ip4 = (struct sockaddr_in*) &addr;
-        
+      if (prev != NULL) {
+        struct sockaddr_in *addr_ip4 = (struct sockaddr_in *)&addr;
+
         if (addr_ip4->sin_port == prev_peer.port &&
-            addr_ip4->sin_addr.s_addr == prev_peer.ip)
-        {
+            addr_ip4->sin_addr.s_addr == prev_peer.ip) {
           printf("this failed\n");
           break;
-        }
-        else
-        {
+        } else {
           net_close(prev);
         }
 
@@ -344,24 +326,21 @@ int node_update(void *in_addr)
     printf("Node %i, connected to prev\n", node->id);
   }
 
-  if (order == 0 || order == 1)
-  {
+  if (order == 0 || order == 1) {
     Peer next_peer = node->peers[order + 1].p;
 
-    printf("Node %i, attempting connect ip %i, port %hu\n", node->id, next_peer.ip, next_peer.port);
-    for (;;)
-    {
+    printf("Node %i, attempting connect ip %i, port %hu\n", node->id,
+           next_peer.ip, next_peer.port);
+    for (;;) {
       next = net_connect_ip(next_peer.ip, next_peer.port, 1);
-      if (next != NULL)
-      {
+      if (next != NULL) {
         printf("Node %i, connected to next\n", node->id);
         break;
       }
     }
   }
 
-  if (order == 2)
-  {
+  if (order == 2) {
     // connect to endpoint
     printf("Now ready to get to endpoint\n");
 
@@ -374,6 +353,8 @@ int node_update(void *in_addr)
 
     // if witness
   }
+
+  return 0;
 }
 
 int main()
@@ -431,6 +412,91 @@ int main()
   return 1;
 #else
 
+  {
+    register_prng(&sprng_desc);
+    register_hash(&sha256_desc);
+  }
+
+  // error but it compiles somehow
+  ltc_mp = ltm_desc;
+
+  // let's sign something
+  rsa_key key;
+  rsa_make_key(NULL, find_prng("sprng"), 1024 / 8, 65537, &key);
+
+  int err;
+  if ((err = rsa_make_key(NULL, /* PRNG state */
+          find_prng("sprng"), /* PRNG idx */
+          1024/8, /* 1024-bit key */
+          65537, /* we like e=65537 */
+          &key) /* where to store the key */
+      ) != CRYPT_OK) {
+    printf("rsa_make_key %s", error_to_string(err));
+    return EXIT_FAILURE;
+  }
+
+  printf("%i\n", key.type);
+  printf("pub %i\n", PK_PUBLIC);
+  printf("priv %i\n", PK_PRIVATE);
+
+  hash_state md;
+  sha256_init(&md);
+
+  char name[] = "bob boberson";
+
+  sha256_process(&md, (unsigned char *)name, strlen(name));
+
+  unsigned char hash_val[32];
+  sha256_done(&md, hash_val);
+
+  for (int i = 0; i < 32; i++)
+  {
+    printf("%X", hash_val[i]);
+  }
+  putchar('\n');
+
+
+  byte buf[1024];
+  unsigned long buf_len = 1024;
+  err = rsa_sign_hash(hash_val, 32, buf, &buf_len, NULL, find_prng("sprng"), find_hash("sha256"), 8, &key);
+  if (err != CRYPT_OK)
+  {
+    printf("sign hash %s", error_to_string(err));
+    return EXIT_FAILURE;
+  }
+
+  printf("buffer is %lu bytes\n", buf_len);
+
+  // export key in between
+
+  unsigned long keybuf_len = 1024;
+  byte* keybuf = calloc(keybuf_len, 1);
+  if ((err = rsa_export(keybuf, &keybuf_len, PK_PUBLIC, &key)) != CRYPT_OK)
+  {
+    printf("export key %s", error_to_string(err));
+    return EXIT_FAILURE;
+  }
+
+  printf("keybuf length: %lu\n", keybuf_len);
+
+  rsa_key key_imported;
+  rsa_import(keybuf, keybuf_len, &key_imported);
+
+  int status;
+  rsa_verify_hash(buf, 128, hash_val, 32, find_hash("sha256"), 8, &status, &key_imported);
+  printf("%i status\n", status);
+
+  // so i can sign buffers now, try verifying
+
+  // why do I need key
+  // to sign messages...
+
+  putchar('\n');
+
+  /* printf(); */
+
+  return 1;
+
   // TLS request coming up
   tls_init();
 
@@ -439,9 +505,7 @@ int main()
   context = tls_create_context(0, TLS_V13);
 
   // tls setup
-  { 
-    tls_make_exportable(context, 1); 
-  }
+  { tls_make_exportable(context, 1); }
 
   // send through whatever is left
 
@@ -450,20 +514,19 @@ int main()
   // out going
   Socket *sock;
 
-  if (load_root_certificates(context))
-  {
+  if (load_root_certificates(context)) {
   }
 
   printf("loaded certificates\n");
 
-/* #define HOST "lukesmith.xyz" */
-/* #define HOST "cedars.xyz" */
+  /* #define HOST "lukesmith.xyz" */
+  /* #define HOST "cedars.xyz" */
 #define HOST "www.wikipedia.org"
-/* #define HOST "www.google.com" */
-/* #define HOST "archlinux.org" */
-/* #define HOST "suckless.org" */
-/* #define HOST "odin-lang.org" */
-/* #define HOST "www.slowernews.com" */
+  /* #define HOST "www.google.com" */
+  /* #define HOST "archlinux.org" */
+  /* #define HOST "suckless.org" */
+  /* #define HOST "odin-lang.org" */
+  /* #define HOST "www.slowernews.com" */
   /* #define HOST "en.wikipedia.org" */
 
   // TODO: there is a random segfault here occasionally, could be bind or
@@ -482,24 +545,19 @@ int main()
     int sent_request = 0;
 
     static struct http_message msg;
-    while ((read_bytes = net_recv(sock, buf, 4096)) > 0)
-    {
+    while ((read_bytes = net_recv(sock, buf, 4096)) > 0) {
       tls_consume_stream(context, buf, read_bytes,
                          sent_request ? tls_default_verify : NULL);
 
-      if (tls_established(context))
-      {
+      if (tls_established(context)) {
         // if sent probs?
-        if (!sent_request)
-        {
+        if (!sent_request) {
           unsigned char request[] = "GET / HTTP/1.1\r\nHost: " HOST "\r\n\r\n";
 
           tls_write(context, request, strlen((char *)request));
           send_pending(sock, context);
           sent_request = 1;
-        }
-        else 
-        {
+        } else {
           // NOTE: DATA_SIZE has to be smaller than http buffer, so that it fits
           // entirely within one call to http_read_from_buf
 #define DATA_SIZE 512
@@ -508,20 +566,17 @@ int main()
           memset(data, 0, DATA_SIZE);
 
           int ret;
-          while ((ret = tls_read(context, data, DATA_SIZE)) > 0)
-          {
+          while ((ret = tls_read(context, data, DATA_SIZE)) > 0) {
             // what happens if http reads but has nothing to write?
             // TODO: maybe I should use the return value from this function?
             http_read_from_buf(data, ret, &msg);
 
-            if (msg.length > 0)
-            {
+            if (msg.length > 0) {
               printf("%.*s\n", msg.length, msg.content);
               /* printf("Got message length: %i\n", msg.length); */
             }
 
-            if (msg.header.length == msg.state.total && msg.state.left == 0)
-            {
+            if (msg.header.length == msg.state.total && msg.state.left == 0) {
               net_close(sock);
             }
           }

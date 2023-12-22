@@ -1,9 +1,11 @@
 #include "types.h"
 #include <stdio.h>
+#include <tomcrypt.h>
 
 typedef struct
 {
     int a;
+    rsa_key key;
     // in bitcoin they use base 58 hash of public key
 } Address;
 
