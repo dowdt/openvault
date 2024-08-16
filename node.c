@@ -15,13 +15,13 @@
 /* #define PATH "/" */
 /* #define PORT 9696 */
 
-/* #define HOST "cedars.xyz" */
-/* #define PATH "/" */
-/* #define PORT 443 */
-
 #define HOST "cedars.xyz"
 #define PATH "/"
 #define PORT 443
+
+/* #define HOST "cedars.xyz" */
+/* #define PATH "/" */
+/* #define PORT 443 */
 
 /* #define HOST "www.computerenhance.com" */
 /* #define PATH "/p/a-few-quick-notes" */
