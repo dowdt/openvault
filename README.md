@@ -2,6 +2,7 @@
 A decentralized archiving network written in C, made for the Openmesh data verification hackathon.
 With the goal of making HTTPS connection recordings non-repudiable.
 
+Made for the December 2023 Openmesh hackathon over a week and a half.
 
 # What's Implemented
 I've implemented the chain request process.
